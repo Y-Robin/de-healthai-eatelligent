@@ -18,15 +18,15 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
             "OpenAI API key is missing. Please provide it in the .env file."
         }
 
-        val attempts = listOf<(String) -> RequestBody>(
-            ::buildModernRequestBody,
-            ::buildLegacyRequestBody
+        val attempts = listOf<(String) -> Request>(
+            ::buildStructuredChatRequest,
+            ::buildLegacyChatRequest
         )
 
         var firstError: IllegalStateException? = null
 
-        for ((index, bodyBuilder) in attempts.withIndex()) {
-            val request = buildRequest(bodyBuilder(base64Image))
+        for ((index, requestBuilder) in attempts.withIndex()) {
+            val request = requestBuilder(base64Image)
             client.newCall(request).execute().use { response ->
                 val rawBody = response.body?.string()
 
@@ -49,30 +49,34 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
         throw firstError ?: IllegalStateException("OpenAI request failed with unknown reason")
     }
 
-    private fun buildRequest(requestBody: RequestBody): Request =
+    private fun baseRequestBuilder(url: String, body: RequestBody): Request =
         Request.Builder()
-            .url("https://api.openai.com/v1/responses")
+            .url(url)
             .addHeader("Authorization", "Bearer $apiKey")
             .addHeader("Content-Type", "application/json")
-            .post(requestBody)
+            .post(body)
             .build()
 
-    private fun buildModernRequestBody(base64Image: String) =
-        JSONObject()
-            .put("model", "gpt-4.1-mini")
-            .put("modalities", JSONArray(listOf("text")))
+    private fun buildStructuredChatRequest(base64Image: String): Request {
+        val body = JSONObject()
+            .put("model", "gpt-4.1")
+            .put("messages", structuredMessages(base64Image))
             .put("response_format", jsonSchemaResponseFormat())
-            .put("input", sharedInput(base64Image))
             .toString()
             .toRequestBody("application/json".toMediaType())
 
-    private fun buildLegacyRequestBody(base64Image: String) =
-        JSONObject()
-            .put("model", "gpt-4.1-mini")
-            .put("input", sharedInput(base64Image))
-            .put("response_format", jsonSchemaResponseFormat())
+        return baseRequestBuilder("https://api.openai.com/v1/chat/completions", body)
+    }
+
+    private fun buildLegacyChatRequest(base64Image: String): Request {
+        val body = JSONObject()
+            .put("model", "gpt-4o-mini")
+            .put("messages", legacyMessages(base64Image))
             .toString()
             .toRequestBody("application/json".toMediaType())
+
+        return baseRequestBuilder("https://api.openai.com/v1/chat/completions", body)
+    }
 
     private fun jsonSchemaResponseFormat(): JSONObject =
         JSONObject().apply {
@@ -91,39 +95,60 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
             .put("type", "number")
             .put("description", description)
 
-    private fun sharedInput(base64Image: String) =
+    private fun structuredMessages(base64Image: String): JSONArray =
         JSONArray().apply {
             put(
                 JSONObject().apply {
                     put("role", "system")
                     put(
                         "content",
-                        JSONArray().apply {
-                            put(
-                                JSONObject().apply {
-                                    put("type", "text")
-                                    put(
-                                        "text",
-                                        "You are a pediatric nutrition assistant. Return short kid-friendly " +
-                                            "meal descriptions and macro nutrients in grams."
-                                    )
-                                }
-                            )
-                        }
+                        "You are a pediatric nutrition assistant. Return concise kid-friendly " +
+                            "meal descriptions and macro nutrients in grams."
                     )
                 }
             )
             put(
                 JSONObject().apply {
                     put("role", "user")
+                    put("content", userContent(base64Image, includePrompt = true))
+                }
+            )
+        }
+
+    private fun legacyMessages(base64Image: String): JSONArray =
+        JSONArray().apply {
+            put(
+                JSONObject().apply {
+                    put("role", "system")
                     put(
                         "content",
-                        JSONArray().apply {
-                            put(imageContent(base64Image))
-                        }
+                        "You are a pediatric nutrition assistant. Respond with minified JSON containing a " +
+                            "description string and macros object with fatGrams, carbGrams, and proteinGrams in grams."
                     )
                 }
             )
+            put(
+                JSONObject().apply {
+                    put("role", "user")
+                    put("content", userContent(base64Image, includePrompt = true))
+                }
+            )
+        }
+
+    private fun userContent(base64Image: String, includePrompt: Boolean): JSONArray =
+        JSONArray().apply {
+            if (includePrompt) {
+                put(
+                    JSONObject().apply {
+                        put("type", "input_text")
+                        put(
+                            "text",
+                            "Analyze the provided meal photo and estimate macro nutrients in grams."
+                        )
+                    }
+                )
+            }
+            put(imageContent(base64Image))
         }
 
     private fun imageContent(base64Image: String): JSONObject {
@@ -171,21 +196,21 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
         if (code != 400) return false
         val normalized = errorBody?.lowercase() ?: return false
         return listOf(
-            "unknown parameter",
             "response_format",
             "response format",
-            "text.format"
+            "json_schema",
+            "unknown parameter",
+            "unsupported"
         ).any(normalized::contains)
     }
 
     private fun parseResponse(raw: String): MealAnalysis {
         val json = JSONObject(raw)
-        val output = json.optJSONArray("output") ?: throw IllegalStateException("No output from OpenAI")
-        val firstMessage = output.optJSONObject(0)
-            ?.optJSONArray("content")
-            ?.optJSONObject(0)
-            ?: throw IllegalStateException("Missing assistant message content")
-        val text = firstMessage.optString("text")
+        val text = when {
+            json.has("output") -> parseResponsesOutput(json)
+            json.has("choices") -> parseChatChoices(json)
+            else -> throw IllegalStateException("Unexpected OpenAI response structure")
+        }
         val structured = JSONObject(text)
         val macros = structured.optJSONObject("macros") ?: JSONObject()
         return MealAnalysis(
@@ -194,5 +219,32 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
             carbGrams = macros.optDouble("carbGrams", 0.0),
             proteinGrams = macros.optDouble("proteinGrams", 0.0)
         )
+    }
+
+    private fun parseResponsesOutput(json: JSONObject): String {
+        val output = json.optJSONArray("output") ?: throw IllegalStateException("No output from OpenAI")
+        val firstMessage = output.optJSONObject(0)
+            ?.optJSONArray("content")
+            ?.optJSONObject(0)
+            ?: throw IllegalStateException("Missing assistant message content")
+        return firstMessage.optString("text")
+    }
+
+    private fun parseChatChoices(json: JSONObject): String {
+        val choices = json.optJSONArray("choices") ?: throw IllegalStateException("No choices from OpenAI")
+        val message = choices.optJSONObject(0)
+            ?.optJSONObject("message")
+            ?: throw IllegalStateException("Missing assistant message")
+        val contentArray = message.optJSONArray("content")
+        if (contentArray != null && contentArray.length() > 0) {
+            val firstPart = contentArray.optJSONObject(0)
+            val text = firstPart?.optString("text")
+            if (!text.isNullOrBlank()) return text
+        }
+        val content = message.optString("content")
+        if (content.isNullOrBlank()) {
+            throw IllegalStateException("Assistant message contained no text content")
+        }
+        return content
     }
 }
