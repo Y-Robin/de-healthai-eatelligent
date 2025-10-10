@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
@@ -17,26 +18,47 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
             "OpenAI API key is missing. Please provide it in the .env file."
         }
 
-        val requestBody = buildRequestBody(base64Image)
-        val request = Request.Builder()
+        val attempts = listOf<(String) -> RequestBody>(
+            ::buildModernRequestBody,
+            ::buildLegacyRequestBody
+        )
+
+        var firstError: IllegalStateException? = null
+
+        for ((index, bodyBuilder) in attempts.withIndex()) {
+            val request = buildRequest(bodyBuilder(base64Image))
+            client.newCall(request).execute().use { response ->
+                val rawBody = response.body?.string()
+
+                if (response.isSuccessful) {
+                    return@withContext parseResponse(rawBody.orEmpty())
+                }
+
+                val error = IllegalStateException(
+                    "OpenAI request failed: ${response.code} ${rawBody ?: ""}"
+                )
+
+                if (index == 0 && shouldRetryWithLegacy(response.code, rawBody)) {
+                    firstError = error
+                    continue
+                }
+
+                throw error
+            }
+        }
+
+        throw firstError ?: IllegalStateException("OpenAI request failed with unknown reason")
+    }
+
+    private fun buildRequest(requestBody: RequestBody): Request =
+        Request.Builder()
             .url("https://api.openai.com/v1/responses")
             .addHeader("Authorization", "Bearer $apiKey")
             .addHeader("Content-Type", "application/json")
             .post(requestBody)
             .build()
 
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                val errorBody = response.body?.string()
-                throw IllegalStateException("OpenAI request failed: ${response.code} ${errorBody ?: ""}")
-            }
-
-            val payload = response.body?.string().orEmpty()
-            parseResponse(payload)
-        }
-    }
-
-    private fun buildRequestBody(base64Image: String) =
+    private fun buildModernRequestBody(base64Image: String) =
         JSONObject()
             .put("model", "gpt-4.1-mini")
             .put(
@@ -51,76 +73,30 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
                                 "json_schema",
                                 JSONObject().apply {
                                     put("name", "meal_analysis")
-                                    put(
-                                        "schema",
-                                        JSONObject().apply {
-                                            put("type", "object")
-                                            put(
-                                                "properties",
-                                                JSONObject()
-                                                    .put("description", JSONObject().put("type", "string"))
-                                                    .put(
-                                                        "macros",
-                                                        JSONObject().apply {
-                                                            put("type", "object")
-                                                            put(
-                                                                "properties",
-                                                                JSONObject()
-                                                                    .put("fatGrams", numberSchema("Total fat in grams"))
-                                                                    .put("carbGrams", numberSchema("Total carbohydrates in grams"))
-                                                                    .put("proteinGrams", numberSchema("Total protein in grams"))
-                                                            )
-                                                            put(
-                                                                "required",
-                                                                JSONArray(listOf("fatGrams", "carbGrams", "proteinGrams"))
-                                                            )
-                                                        }
-                                                    )
-                                            )
-                                            put("required", JSONArray(listOf("description", "macros")))
-                                        }
-                                    )
+                                    put("schema", analysisSchema())
                                 }
                             )
                         }
                     )
                 }
             )
+            .put("input", sharedInput(base64Image))
+            .toString()
+            .toRequestBody("application/json".toMediaType())
+
+    private fun buildLegacyRequestBody(base64Image: String) =
+        JSONObject()
+            .put("model", "gpt-4.1-mini")
+            .put("input", sharedInput(base64Image))
             .put(
-                "input",
-                JSONArray().apply {
+                "response_format",
+                JSONObject().apply {
+                    put("type", "json_schema")
                     put(
+                        "json_schema",
                         JSONObject().apply {
-                            put("role", "system")
-                            put(
-                                "content",
-                                JSONArray().apply {
-                                    put(
-                                        JSONObject().apply {
-                                            put("type", "text")
-                                            put(
-                                                "text",
-                                                "You are a pediatric nutrition assistant. Return short kid-friendly " +
-                                                    "meal descriptions and macro nutrients in grams."
-                                            )
-                                        }
-                                    )
-                                }
-                            )
-                        }
-                    )
-                    put(
-                        JSONObject().apply {
-                            put("role", "user")
-                            put(
-                                "content",
-                                JSONArray().apply {
-                                    put(JSONObject().apply {
-                                        put("type", "input_image")
-                                        put("image_base64", base64Image)
-                                    })
-                                }
-                            )
+                            put("name", "meal_analysis")
+                            put("schema", analysisSchema())
                         }
                     )
                 }
@@ -132,6 +108,80 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
         JSONObject()
             .put("type", "number")
             .put("description", description)
+
+    private fun sharedInput(base64Image: String) =
+        JSONArray().apply {
+            put(
+                JSONObject().apply {
+                    put("role", "system")
+                    put(
+                        "content",
+                        JSONArray().apply {
+                            put(
+                                JSONObject().apply {
+                                    put("type", "text")
+                                    put(
+                                        "text",
+                                        "You are a pediatric nutrition assistant. Return short kid-friendly " +
+                                            "meal descriptions and macro nutrients in grams."
+                                    )
+                                }
+                            )
+                        }
+                    )
+                }
+            )
+            put(
+                JSONObject().apply {
+                    put("role", "user")
+                    put(
+                        "content",
+                        JSONArray().apply {
+                            put(
+                                JSONObject().apply {
+                                    put("type", "input_image")
+                                    put("image_base64", base64Image)
+                                }
+                            )
+                        }
+                    )
+                }
+            )
+        }
+
+    private fun analysisSchema(): JSONObject =
+        JSONObject().apply {
+            put("type", "object")
+            put(
+                "properties",
+                JSONObject()
+                    .put("description", JSONObject().put("type", "string"))
+                    .put(
+                        "macros",
+                        JSONObject().apply {
+                            put("type", "object")
+                            put(
+                                "properties",
+                                JSONObject()
+                                    .put("fatGrams", numberSchema("Total fat in grams"))
+                                    .put("carbGrams", numberSchema("Total carbohydrates in grams"))
+                                    .put("proteinGrams", numberSchema("Total protein in grams"))
+                            )
+                            put(
+                                "required",
+                                JSONArray(listOf("fatGrams", "carbGrams", "proteinGrams"))
+                            )
+                        }
+                    )
+            )
+            put("required", JSONArray(listOf("description", "macros")))
+        }
+
+    private fun shouldRetryWithLegacy(code: Int, errorBody: String?): Boolean {
+        if (code != 400) return false
+        val normalized = errorBody?.lowercase() ?: return false
+        return listOf("unknown parameter", "response_format", "text.format").any(normalized::contains)
+    }
 
     private fun parseResponse(raw: String): MealAnalysis {
         val json = JSONObject(raw)
