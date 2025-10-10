@@ -40,40 +40,46 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
         JSONObject()
             .put("model", "gpt-4.1-mini")
             .put(
-                "response_format",
+                "response",
                 JSONObject().apply {
-                    put("type", "json_schema")
+                    put("modalities", JSONArray(listOf("text")))
                     put(
-                        "json_schema",
+                        "text",
                         JSONObject().apply {
-                            put("name", "meal_analysis")
+                            put("format", "json_schema")
                             put(
-                                "schema",
+                                "json_schema",
                                 JSONObject().apply {
-                                    put("type", "object")
+                                    put("name", "meal_analysis")
                                     put(
-                                        "properties",
-                                        JSONObject()
-                                            .put("description", JSONObject().put("type", "string"))
-                                            .put(
-                                                "macros",
-                                                JSONObject().apply {
-                                                    put("type", "object")
-                                                    put(
-                                                        "properties",
-                                                        JSONObject()
-                                                            .put("fatGrams", numberSchema("Total fat in grams"))
-                                                            .put("carbGrams", numberSchema("Total carbohydrates in grams"))
-                                                            .put("proteinGrams", numberSchema("Total protein in grams"))
+                                        "schema",
+                                        JSONObject().apply {
+                                            put("type", "object")
+                                            put(
+                                                "properties",
+                                                JSONObject()
+                                                    .put("description", JSONObject().put("type", "string"))
+                                                    .put(
+                                                        "macros",
+                                                        JSONObject().apply {
+                                                            put("type", "object")
+                                                            put(
+                                                                "properties",
+                                                                JSONObject()
+                                                                    .put("fatGrams", numberSchema("Total fat in grams"))
+                                                                    .put("carbGrams", numberSchema("Total carbohydrates in grams"))
+                                                                    .put("proteinGrams", numberSchema("Total protein in grams"))
+                                                            )
+                                                            put(
+                                                                "required",
+                                                                JSONArray(listOf("fatGrams", "carbGrams", "proteinGrams"))
+                                                            )
+                                                        }
                                                     )
-                                                    put(
-                                                        "required",
-                                                        JSONArray(listOf("fatGrams", "carbGrams", "proteinGrams"))
-                                                    )
-                                                }
                                             )
+                                            put("required", JSONArray(listOf("description", "macros")))
+                                        }
                                     )
-                                    put("required", JSONArray(listOf("description", "macros")))
                                 }
                             )
                         }
