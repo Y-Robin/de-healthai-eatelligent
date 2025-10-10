@@ -136,17 +136,25 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
                     put(
                         "content",
                         JSONArray().apply {
-                            put(
-                                JSONObject().apply {
-                                    put("type", "input_image")
-                                    put("image_base64", base64Image)
-                                }
-                            )
+                            put(imageContent(base64Image))
                         }
                     )
                 }
             )
         }
+
+    private fun imageContent(base64Image: String): JSONObject {
+        val sanitized = base64Image.trim()
+        val dataUrl = if (sanitized.startsWith("data:")) {
+            sanitized
+        } else {
+            "data:image/jpeg;base64,$sanitized"
+        }
+
+        return JSONObject()
+            .put("type", "input_image")
+            .put("image_url", JSONObject().put("url", dataUrl))
+    }
 
     private fun analysisSchema(): JSONObject =
         JSONObject().apply {
