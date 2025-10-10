@@ -85,7 +85,7 @@ fun UserConfigurationPreview() {
 
 // --- Domain model ------------------------------------------------------------
 
-enum class Gender { Girl, Boy, NonBinary }
+enum class Gender { Girl, Boy }
 
 data class UserConfiguration(
     val name: String = "",
@@ -120,218 +120,211 @@ fun UserConfigurationScreen(
 
     val scroll = rememberScrollState()
 
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Text(
-                        "Dein Profil",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                navigationIcon = {
-                    onBack?.let {
-                        IconButton(onClick = it) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bgGradient)
+    ) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                CenterAlignedTopAppBar(
+                    title = {
+                        Text(
+                            "Dein Profil",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    navigationIcon = {
+                        onBack?.let {
+                            IconButton(onClick = it) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Zurück"
+                                )
+                            }
                         }
                     }
-                }
-            )
-        },
-        bottomBar = {
-            BottomAppBar(actions = {}, floatingActionButton = {
-                FloatingActionButton(
-                    onClick = { onSave?.invoke(value) },
-                    containerColor = sunshine,
-                    contentColor = Color(0xFF4A3A00)
-                ) {
-                    Icon(Icons.Default.Check, contentDescription = "Speichern")
-                }
-            })
-        }
-    ) { inner ->
-        Box(
-            modifier
-                .fillMaxSize()
-                .background(bgGradient)
-                .padding(inner)
-        ) {
-            // Decorative header bubble
+                )
+            },
+            bottomBar = {
+                BottomAppBar(actions = {}, floatingActionButton = {
+                    FloatingActionButton(
+                        onClick = { onSave?.invoke(value) },
+                        containerColor = sunshine,
+                        contentColor = Color(0xFF4A3A00)
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = "Speichern")
+                    }
+                })
+            }
+        ) { inner ->
             Box(
-                Modifier
-                    .padding(top = 8.dp)
-                    .align(Alignment.TopCenter)
-                    .size(width = 220.dp, height = 60.dp)
-                    .clip(RoundedCornerShape(30.dp))
-                    .background(lilac.copy(alpha = 0.3f))
-            )
-
-            Column(
-                Modifier
+                modifier
                     .fillMaxSize()
-                    .verticalScroll(scroll)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                    .background(bgGradient)
+                    .padding(inner)
             ) {
-                Text(
-                    text = "Lass uns dich kennenlernen!",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF2B2B2B)
+                // Decorative header bubble
+                Box(
+                    Modifier
+                        .padding(top = 8.dp)
+                        .align(Alignment.TopCenter)
+                        .size(width = 220.dp, height = 60.dp)
+                        .clip(RoundedCornerShape(30.dp))
+                        .background(lilac.copy(alpha = 0.3f))
                 )
 
-                // Card container for inputs
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.95f)),
-                    shape = RoundedCornerShape(28.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                    modifier = Modifier.fillMaxWidth()
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(scroll)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Column(
-                        Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    Text(
+                        text = "Lass uns dich kennenlernen!",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF2B2B2B)
+                    )
+
+                    // Card container for inputs
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.95f)),
+                        shape = RoundedCornerShape(28.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        val dateLabel =
-                            value.birthday?.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
-                                ?: "Geburtsdatum"
-                        val openDate = remember { mutableStateOf(false) }
-
-                        // Name
-                        OutlinedTextField(
-                            value = value.name,
-                            onValueChange = { value = value.copy(name = it) },
-                            label = { Text("Name") },
-                            leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            val age = remember(value.birthday) {
-                                value.birthday?.let {
-                                    Period.between(
-                                        it,
-                                        LocalDate.now()
-                                    ).years
-                                }
-                            }
-
-                            AssistChip(
-                                onClick = { openDate.value = true },
-                                label = { Text(dateLabel) },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Default.DateRange,
-                                        contentDescription = null
-                                    )
-                                },
-                                shape = RoundedCornerShape(16.dp),
-                                border = BorderStroke(1.dp, Color(0x33000000))
-                            )
-                            AssistChip(
-                                onClick = { },
-                                label = { Text("Alter: ${age ?: 0} Jahre") },
-                                leadingIcon = {
-                                    Box(
-                                        Modifier
-                                            .size(8.dp)
-                                            .clip(CircleShape)
-                                            .background(peach)
-                                    )
-                                }
-                            )
-                        }
-                        // Birthday
-                        AnimatedVisibility(visible = openDate.value) {
-                            BirthdayPicker(
-                                initial = value.birthday,
-                                onConfirm = {
-                                    value = value.copy(birthday = it)
-                                    openDate.value = false
-                                },
-                                onDismiss = { openDate.value = false }
-                            )
-                        }
-
-
-                        // Gender
-                        Text(
-                            text = "Geschlecht",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp
-                        )
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        Column(
+                            Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            GenderChip(
-                                selected = value.gender == Gender.Girl,
-                                label = "Mädchen",
-                                icon = { Icon(Icons.Default.Person, contentDescription = null) },
-                                color = Color(0xFFFF80AB)
-                            ) { value = value.copy(gender = Gender.Girl) }
-                            GenderChip(
-                                selected = value.gender == Gender.Boy,
-                                label = "Junge",
-                                icon = { Icon(Icons.Default.Person, contentDescription = null) },
-                                color = Color(0xFF80D8FF)
-                            ) { value = value.copy(gender = Gender.Boy) }
-                            GenderChip(
-                                selected = value.gender == Gender.NonBinary,
-                                label = "Divers",
-                                icon = {
+                            val dateLabel =
+                                value.birthday?.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+                                    ?: "Geburtsdatum"
+                            val openDate = remember { mutableStateOf(false) }
+
+                            // Name
+                            OutlinedTextField(
+                                value = value.name,
+                                onValueChange = { value = value.copy(name = it) },
+                                label = { Text("Name") },
+                                leadingIcon = {
                                     Icon(
                                         Icons.Default.Person,
                                         contentDescription = null
                                     )
                                 },
-                                color = Color(0xFFB388FF)
-                            ) { value = value.copy(gender = Gender.NonBinary) }
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                val age = remember(value.birthday) {
+                                    value.birthday?.let {
+                                        Period.between(
+                                            it,
+                                            LocalDate.now()
+                                        ).years
+                                    }
+                                }
+
+                                AssistChip(
+                                    onClick = { openDate.value = true },
+                                    label = { Text(dateLabel) },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.DateRange,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(16.dp),
+                                    border = BorderStroke(1.dp, Color(0x33000000))
+                                )
+                                AssistChip(
+                                    onClick = { },
+                                    label = { Text("Alter: ${age ?: 0} Jahre") },
+                                    leadingIcon = {
+                                        Box(
+                                            Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(peach)
+                                        )
+                                    }
+                                )
+                            }
+                            // Birthday
+                            AnimatedVisibility(visible = openDate.value) {
+                                BirthdayPicker(
+                                    initial = value.birthday,
+                                    onConfirm = {
+                                        value = value.copy(birthday = it)
+                                        openDate.value = false
+                                    },
+                                    onDismiss = { openDate.value = false }
+                                )
+                            }
+
+
+                            // Gender
+                            Text(
+                                text = "Geschlecht",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp
+                            )
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                GenderChip(
+                                    selected = value.gender == Gender.Girl,
+                                    label = "Mädchen",
+                                    icon = {
+                                        Icon(
+                                            Icons.Default.Person,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    color = Color(0xFFFF80AB)
+                                ) { value = value.copy(gender = Gender.Girl) }
+                                GenderChip(
+                                    selected = value.gender == Gender.Boy,
+                                    label = "Junge",
+                                    icon = {
+                                        Icon(
+                                            Icons.Default.Person,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    color = Color(0xFF80D8FF)
+                                ) { value = value.copy(gender = Gender.Boy) }
+                            }
+
+                            // Diagnosis
+                            OutlinedTextField(
+                                value = value.diagnosis,
+                                onValueChange = { value = value.copy(diagnosis = it) },
+                                label = { Text("Diagnose (Name) - Optional") },
+                                placeholder = { Text("z. B. Zöliakie, Laktoseintoleranz…") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
                         }
-
-                        // Diagnosis
-                        OutlinedTextField(
-                            value = value.diagnosis,
-                            onValueChange = { value = value.copy(diagnosis = it) },
-                            label = { Text("Diagnose (Name) - Optional") },
-                            placeholder = { Text("z. B. Zöliakie, Laktoseintoleranz…") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-//                        // Age helper
-//
-//                        AnimatedVisibility(
-//                            visible = age != null,
-//                            enter = fadeIn(),
-//                            exit = fadeOut()
-//                        ) {
-//                            AssistChip(
-//                                onClick = { },
-//                                label = { Text("Alter: ${age ?: 0} Jahre") },
-//                                leadingIcon = {
-//                                    Box(
-//                                        Modifier
-//                                            .size(8.dp)
-//                                            .clip(CircleShape)
-//                                            .background(peach)
-//                                    )
-//                                }
-//                            )
-//                        }
                     }
+
+                    // Save hint
+                    Text(
+                        text = "Tipp: Unten rechts kannst du speichern",
+                        fontSize = 12.sp,
+                        color = Color(0xFF4A4A4A)
+                    )
+
+                    Spacer(Modifier.height(80.dp))
                 }
-
-                // Save hint
-                Text(
-                    text = "Tipp: Unten rechts kannst du speichern",
-                    fontSize = 12.sp,
-                    color = Color(0xFF4A4A4A)
-                )
-
-                Spacer(Modifier.height(80.dp))
             }
         }
     }
