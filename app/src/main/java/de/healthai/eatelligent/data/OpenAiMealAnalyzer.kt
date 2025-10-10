@@ -40,10 +40,9 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
 
                 if (index == 0 && shouldRetryWithLegacy(response.code, rawBody)) {
                     firstError = error
-                    continue
+                } else {
+                    throw error
                 }
-
-                throw error
             }
         }
 
