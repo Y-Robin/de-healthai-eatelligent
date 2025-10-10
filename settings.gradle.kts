@@ -16,9 +16,19 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven {
+            url = uri("https://maven.pkg.github.com/pioneo/lib-android-pioneo-chatui-compose")
+            credentials {
+                username = extra["GITHUB_USERNAME"] as String?
+                password = extra["GITHUB_TOKEN"] as String?
+            }
+        }
+    }
+    repositories {
+        google()
+        mavenCentral()
     }
 }
-
 rootProject.name = "Eatelligent"
 include(":app")
  
