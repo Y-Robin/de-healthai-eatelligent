@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -192,6 +193,11 @@ fun UserConfigurationScreen(
                         Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
+                        val dateLabel =
+                            value.birthday?.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+                                ?: "Geburtsdatum"
+                        val openDate = remember { mutableStateOf(false) }
+
                         // Name
                         OutlinedTextField(
                             value = value.name,
@@ -199,38 +205,45 @@ fun UserConfigurationScreen(
                             label = { Text("Name") },
                             leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
                             singleLine = true,
-//                            colors = TextFieldDefaults.colors(
-//                                focusedTextColor = Color.Black,
-//                                unfocusedTextColor = Color.Black,
-//                                focusedContainerColor = Color.Transparent,
-//                                unfocusedContainerColor = Color.Transparent,
-//                                focusedLabelColor = Color.Black,
-//                                unfocusedLabelColor = Color.DarkGray,
-//                                focusedIndicatorColor = Color.Black,
-//                                unfocusedIndicatorColor = Color.Gray
-//                            ),
                             modifier = Modifier.fillMaxWidth()
                         )
 
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val age = remember(value.birthday) {
+                                value.birthday?.let {
+                                    Period.between(
+                                        it,
+                                        LocalDate.now()
+                                    ).years
+                                }
+                            }
+
+                            AssistChip(
+                                onClick = { openDate.value = true },
+                                label = { Text(dateLabel) },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.DateRange,
+                                        contentDescription = null
+                                    )
+                                },
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, Color(0x33000000))
+                            )
+                            AssistChip(
+                                onClick = { },
+                                label = { Text("Alter: ${age ?: 0} Jahre") },
+                                leadingIcon = {
+                                    Box(
+                                        Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(peach)
+                                    )
+                                }
+                            )
+                        }
                         // Birthday
-                        val dateLabel =
-                            value.birthday?.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
-                                ?: "Geburtsdatum"
-                        val openDate = remember { mutableStateOf(false) }
-
-                        AssistChip(
-                            onClick = { openDate.value = true },
-                            label = { Text(dateLabel) },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.DateRange,
-                                    contentDescription = null
-                                )
-                            },
-                            shape = RoundedCornerShape(16.dp),
-                            border = BorderStroke(1.dp, Color(0x33000000))
-                        )
-
                         AnimatedVisibility(visible = openDate.value) {
                             BirthdayPicker(
                                 initial = value.birthday,
@@ -241,6 +254,7 @@ fun UserConfigurationScreen(
                                 onDismiss = { openDate.value = false }
                             )
                         }
+
 
                         // Gender
                         Text(
@@ -281,39 +295,32 @@ fun UserConfigurationScreen(
                         OutlinedTextField(
                             value = value.diagnosis,
                             onValueChange = { value = value.copy(diagnosis = it) },
-                            label = { Text("Diagnose (Name)") },
+                            label = { Text("Diagnose (Name) - Optional") },
                             placeholder = { Text("z. B. Zöliakie, Laktoseintoleranz…") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        // Age helper
-                        val age = remember(value.birthday) {
-                            value.birthday?.let {
-                                Period.between(
-                                    it,
-                                    LocalDate.now()
-                                ).years
-                            }
-                        }
-                        AnimatedVisibility(
-                            visible = age != null,
-                            enter = fadeIn(),
-                            exit = fadeOut()
-                        ) {
-                            AssistChip(
-                                onClick = { },
-                                label = { Text("Alter: ${age ?: 0} Jahre") },
-                                leadingIcon = {
-                                    Box(
-                                        Modifier
-                                            .size(8.dp)
-                                            .clip(CircleShape)
-                                            .background(peach)
-                                    )
-                                }
-                            )
-                        }
+//                        // Age helper
+//
+//                        AnimatedVisibility(
+//                            visible = age != null,
+//                            enter = fadeIn(),
+//                            exit = fadeOut()
+//                        ) {
+//                            AssistChip(
+//                                onClick = { },
+//                                label = { Text("Alter: ${age ?: 0} Jahre") },
+//                                leadingIcon = {
+//                                    Box(
+//                                        Modifier
+//                                            .size(8.dp)
+//                                            .clip(CircleShape)
+//                                            .background(peach)
+//                                    )
+//                                }
+//                            )
+//                        }
                     }
                 }
 
