@@ -140,7 +140,7 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
             if (includePrompt) {
                 put(
                     JSONObject().apply {
-                        put("type", "input_text")
+                        put("type", "text")
                         put(
                             "text",
                             "Analyze the provided meal photo and estimate macro nutrients in grams."
@@ -160,7 +160,7 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
         }
 
         return JSONObject()
-            .put("type", "input_image")
+            .put("type", "image_url")
             .put("image_url", JSONObject().put("url", dataUrl))
     }
 
