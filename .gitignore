@@ -1,0 +1,27 @@
+build/
+gen/
+*.iml
+.idea/*
+!.idea/copyright
+!.idea/scopes
+out/
+local.properties
+.DS_Store
+.gradle/
+.cache/
+.kotlin/
+.gitsecret/keys/random_seed
+.gitsecret/keys/**/*~
+!*.secret
+secret.properties
+apps/secrets/pag-service-account.json
+apps/secrets/pcna-service-account.json
+apps/secrets/app-distribution-service-account.json
+gradleChecks.sh
+**/src/main/play/release-notes/
+!/reference-coverage/**
+/pr-reference-coverage/*
+
+# MkDocs
+site/
+docs/READMEs/
