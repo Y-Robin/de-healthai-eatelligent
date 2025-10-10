@@ -60,25 +60,8 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
     private fun buildModernRequestBody(base64Image: String) =
         JSONObject()
             .put("model", "gpt-4.1-mini")
-            .put(
-                "response",
-                JSONObject().apply {
-                    put("modalities", JSONArray(listOf("text")))
-                    put(
-                        "text",
-                        JSONObject().apply {
-                            put("format", "json_schema")
-                            put(
-                                "json_schema",
-                                JSONObject().apply {
-                                    put("name", "meal_analysis")
-                                    put("schema", analysisSchema())
-                                }
-                            )
-                        }
-                    )
-                }
-            )
+            .put("modalities", JSONArray(listOf("text")))
+            .put("response_format", jsonSchemaResponseFormat())
             .put("input", sharedInput(base64Image))
             .toString()
             .toRequestBody("application/json".toMediaType())
@@ -87,21 +70,21 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
         JSONObject()
             .put("model", "gpt-4.1-mini")
             .put("input", sharedInput(base64Image))
-            .put(
-                "response_format",
-                JSONObject().apply {
-                    put("type", "json_schema")
-                    put(
-                        "json_schema",
-                        JSONObject().apply {
-                            put("name", "meal_analysis")
-                            put("schema", analysisSchema())
-                        }
-                    )
-                }
-            )
+            .put("response_format", jsonSchemaResponseFormat())
             .toString()
             .toRequestBody("application/json".toMediaType())
+
+    private fun jsonSchemaResponseFormat(): JSONObject =
+        JSONObject().apply {
+            put("type", "json_schema")
+            put(
+                "json_schema",
+                JSONObject().apply {
+                    put("name", "meal_analysis")
+                    put("schema", analysisSchema())
+                }
+            )
+        }
 
     private fun numberSchema(description: String): JSONObject =
         JSONObject()
@@ -187,7 +170,12 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
     private fun shouldRetryWithLegacy(code: Int, errorBody: String?): Boolean {
         if (code != 400) return false
         val normalized = errorBody?.lowercase() ?: return false
-        return listOf("unknown parameter", "response_format", "text.format").any(normalized::contains)
+        return listOf(
+            "unknown parameter",
+            "response_format",
+            "response format",
+            "text.format"
+        ).any(normalized::contains)
     }
 
     private fun parseResponse(raw: String): MealAnalysis {
