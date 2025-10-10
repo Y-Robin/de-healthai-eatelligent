@@ -19,7 +19,8 @@ fun EatelligentApp(viewModel: MealViewModel) {
     val error by viewModel.error.collectAsState()
 
     Surface(modifier = Modifier.fillMaxSize()) {
-        if (userConfiguration == null) {
+        val currentConfiguration = userConfiguration
+        if (currentConfiguration == null) {
             UserConfigurationScreen(
                 modifier = Modifier.fillMaxSize(),
                 onSave = {
@@ -28,7 +29,7 @@ fun EatelligentApp(viewModel: MealViewModel) {
             )
         } else {
             MealHomeScreen(
-                userConfiguration = userConfiguration,
+                userConfiguration = currentConfiguration,
                 meals = meals,
                 latestResult = latest,
                 isAnalyzing = isAnalyzing,
