@@ -86,19 +86,55 @@ class MealViewModel(
         }
     }
 
-    fun addManualMeal(description: String) {
-        val trimmed = description.trim()
-        if (trimmed.isEmpty()) return
+    fun saveManualMeal(
+        input: ManualMealInput,
+        mealId: String? = null,
+        recordedAtOverride: Instant? = null
+    ) {
+        val trimmedDescription = input.description.trim()
+        if (trimmedDescription.isEmpty()) {
+            _error.value = "Bitte gib eine Beschreibung ein."
+            return
+        }
         viewModelScope.launch {
-            val manualEntry = MealEntry(
-                id = UUID.randomUUID().toString(),
-                recordedAt = Instant.now(),
-                description = trimmed,
-                fatGrams = 0.0,
-                carbGrams = 0.0,
-                proteinGrams = 0.0
-            )
-            persistMealEntry(manualEntry)
+            if (mealId == null) {
+                val manualEntry = MealEntry(
+                    id = UUID.randomUUID().toString(),
+                    recordedAt = Instant.now(),
+                    description = trimmedDescription,
+                    fatGrams = input.fatGrams,
+                    carbGrams = input.carbGrams,
+                    proteinGrams = input.proteinGrams
+                )
+                persistMealEntry(manualEntry)
+            } else {
+                val existing = _meals.value.find { it.id == mealId }
+                val updatedEntry = MealEntry(
+                    id = mealId,
+                    recordedAt = existing?.recordedAt ?: recordedAtOverride ?: Instant.now(),
+                    description = trimmedDescription,
+                    fatGrams = input.fatGrams,
+                    carbGrams = input.carbGrams,
+                    proteinGrams = input.proteinGrams
+                )
+                persistUpdatedMeal(updatedEntry)
+            }
+        }
+    }
+
+    fun deleteMeal(mealId: String) {
+        viewModelScope.launch {
+            val updatedMeals = _meals.value.filterNot { it.id == mealId }
+            val writeResult = runCatching { repository.writeMeals(updatedMeals) }
+            writeResult.onSuccess {
+                _meals.value = updatedMeals
+                if (_latestResult.value?.id == mealId) {
+                    _latestResult.value = null
+                }
+            }
+            writeResult.onFailure { throwable ->
+                _error.value = throwable.message
+            }
         }
     }
 
@@ -141,6 +177,25 @@ class MealViewModel(
         }
     }
 
+    private suspend fun persistUpdatedMeal(updatedEntry: MealEntry) {
+        val updatedMeals = _meals.value.map { existing ->
+            if (existing.id == updatedEntry.id) {
+                updatedEntry
+            } else {
+                existing
+            }
+        }
+        val writeResult = runCatching { repository.writeMeals(updatedMeals) }
+        writeResult.onSuccess {
+            _meals.value = updatedMeals
+            _latestResult.value = updatedEntry
+            lastSavedFingerprint = mealFingerprint(updatedEntry) to System.currentTimeMillis()
+        }
+        writeResult.onFailure { throwable ->
+            _error.value = throwable.message
+        }
+    }
+
     private fun mealFingerprint(entry: MealEntry): String = buildString {
         append(entry.description.trim())
         append('|')
@@ -167,3 +222,10 @@ class MealViewModel(
             }
     }
 }
+
+data class ManualMealInput(
+    val description: String,
+    val fatGrams: Double,
+    val carbGrams: Double,
+    val proteinGrams: Double
+)

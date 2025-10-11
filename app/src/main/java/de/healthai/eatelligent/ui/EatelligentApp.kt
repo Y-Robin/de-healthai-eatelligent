@@ -7,6 +7,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import de.healthai.eatelligent.UserConfigurationScreen
+import de.healthai.eatelligent.ui.home.ManualMealInput
 import de.healthai.eatelligent.ui.home.MealHomeScreen
 import de.healthai.eatelligent.ui.home.MealViewModel
 
@@ -33,7 +34,10 @@ fun EatelligentApp(viewModel: MealViewModel) {
                 isAnalyzing = isAnalyzing,
                 errorMessage = error,
                 onCaptureMeal = viewModel::analyzeMeal,
-                onAddManualMeal = viewModel::addManualMeal
+                onSaveMealEntry = { input: ManualMealInput, mealId: String?, recordedAt ->
+                    viewModel.saveManualMeal(input, mealId, recordedAt)
+                },
+                onDeleteMealEntry = viewModel::deleteMeal
             )
         }
     }
