@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -333,6 +334,7 @@ private fun ChatCenterDialog(
     onSelectConversation: (String) -> Unit,
     onSendMessage: (String, String) -> Unit
 ) {
+    var isFocusMode by rememberSaveable { mutableStateOf(false) }
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             modifier = Modifier
@@ -342,6 +344,8 @@ private fun ChatCenterDialog(
             tonalElevation = 6.dp
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
+                val selectedConversation = conversations.firstOrNull { it.id == activeConversationId }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -356,6 +360,12 @@ private fun ChatCenterDialog(
                         color = Color(0xFF2B2B2B)
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (selectedConversation != null && conversations.isNotEmpty()) {
+                            TextButton(onClick = { isFocusMode = !isFocusMode }) {
+                                val label = if (isFocusMode) "Übersicht" else "Fokus"
+                                Text(label)
+                            }
+                        }
                         TextButton(onClick = onNewChat) {
                             Icon(Icons.Default.Add, contentDescription = null)
                             Spacer(modifier = Modifier.width(4.dp))
@@ -369,45 +379,57 @@ private fun ChatCenterDialog(
 
                 Divider()
 
-                val selectedConversation = conversations.firstOrNull { it.id == activeConversationId }
-
-                Row(modifier = Modifier.fillMaxSize()) {
-                    ConversationList(
-                        conversations = conversations,
-                        activeConversationId = activeConversationId,
-                        onSelectConversation = onSelectConversation,
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .widthIn(min = 180.dp)
-                            .background(Color(0xFFF5F1FF))
+                if (isFocusMode && selectedConversation != null) {
+                    ConversationDetail(
+                        conversation = selectedConversation,
+                        onSendMessage = { text -> onSendMessage(selectedConversation.id, text) },
+                        modifier = Modifier.fillMaxSize(),
+                        isFocusMode = true,
+                        onExitFocus = { isFocusMode = false }
                     )
-
-                    Divider(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .width(1.dp),
-                        color = Color(0xFFDDD6FF)
-                    )
-
-                    if (selectedConversation != null) {
-                        ConversationDetail(
-                            conversation = selectedConversation,
-                            onSendMessage = { text ->
-                                onSendMessage(selectedConversation.id, text)
+                } else {
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        ConversationList(
+                            conversations = conversations,
+                            activeConversationId = activeConversationId,
+                            onSelectConversation = {
+                                onSelectConversation(it)
+                                isFocusMode = false
                             },
-                            modifier = Modifier.weight(1f)
-                        )
-                    } else {
-                        Box(
                             modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                "Starte einen neuen Chat, um loszulegen.",
-                                color = Color.Gray
+                                .fillMaxHeight()
+                                .widthIn(min = 180.dp)
+                                .background(Color(0xFFF5F1FF))
+                        )
+
+                        Divider(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .width(1.dp),
+                            color = Color(0xFFDDD6FF)
+                        )
+
+                        if (selectedConversation != null) {
+                            ConversationDetail(
+                                conversation = selectedConversation,
+                                onSendMessage = { text ->
+                                    onSendMessage(selectedConversation.id, text)
+                                },
+                                modifier = Modifier.weight(1f),
+                                onRequestFocus = { isFocusMode = true }
                             )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "Starte einen neuen Chat, um loszulegen.",
+                                    color = Color.Gray
+                                )
+                            }
                         }
                     }
                 }
@@ -473,32 +495,88 @@ private fun ConversationList(
 private fun ConversationDetail(
     conversation: ChatConversation,
     onSendMessage: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onRequestFocus: (() -> Unit)? = null,
+    onExitFocus: (() -> Unit)? = null,
+    isFocusMode: Boolean = false
 ) {
     Column(
         modifier = modifier
             .fillMaxHeight()
-            .background(Color.White),
-        verticalArrangement = Arrangement.SpaceBetween
+            .background(Color.White)
     ) {
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(conversation.messages, key = { it.id }) { message ->
-                ChatBubble(message = message)
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = conversation.title,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 18.sp,
+                        color = Color(0xFF2B2B2B)
+                    )
+                    val lastUserMessage = conversation.messages.lastOrNull { it.sender == ChatSender.User }
+                    lastUserMessage?.let {
+                        Text(
+                            text = "Letzte Frage: ${it.content}",
+                            color = Color.Gray,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                if (isFocusMode && onExitFocus != null) {
+                    TextButton(onClick = onExitFocus) {
+                        Text("Zur Übersicht")
+                    }
+                } else if (!isFocusMode && onRequestFocus != null) {
+                    TextButton(onClick = onRequestFocus) {
+                        Text("Fokus öffnen")
+                    }
+                }
+            }
+
+            Divider(color = Color(0xFFEEE5FF))
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(conversation.messages, key = { it.id }) { message ->
+                    ChatBubble(message = message)
+                }
             }
         }
 
         var input by rememberSaveable(conversation.id) { mutableStateOf("") }
         val focusManager = LocalFocusManager.current
+        val questionSuggestions = remember(conversation.id) {
+            listOf(
+                "Wie liege ich heute im Vergleich zu meinen Makrozielen?",
+                "Hast du eine Idee für eine ausgewogene nächste Mahlzeit?",
+                "Welche Mahlzeit hatte die meisten Proteine?"
+            )
+        }
+
+        if (questionSuggestions.isNotEmpty()) {
+            SuggestionRow(
+                suggestions = questionSuggestions,
+                onSuggestionSelected = { input = it }
+            )
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -506,15 +584,20 @@ private fun ConversationDetail(
                 value = input,
                 onValueChange = { input = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Nachricht schreiben…") },
-                keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Send),
+                placeholder = { Text("Nachricht oder Frage eingeben…") },
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Sentences,
+                    imeAction = ImeAction.Send
+                ),
                 keyboardActions = KeyboardActions(onSend = {
                     if (input.isNotBlank()) {
                         onSendMessage(input)
                         input = ""
                         focusManager.clearFocus()
                     }
-                })
+                }),
+                minLines = 1,
+                maxLines = 4
             )
             Button(
                 onClick = {
@@ -528,6 +611,28 @@ private fun ConversationDetail(
             ) {
                 Text("Senden")
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SuggestionRow(
+    suggestions: List<String>,
+    onSuggestionSelected: (String) -> Unit
+) {
+    FlowRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        suggestions.forEach { suggestion ->
+            AssistChip(
+                onClick = { onSuggestionSelected(suggestion) },
+                label = { Text(suggestion) }
+            )
         }
     }
 }
