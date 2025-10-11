@@ -29,10 +29,12 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -41,7 +43,6 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -73,8 +74,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import de.healthai.eatelligent.Gender
 import de.healthai.eatelligent.UserConfiguration
 import de.healthai.eatelligent.data.MealEntry
@@ -85,7 +88,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private enum class MealHomeTab { Capture, History, Settings }
+private enum class MealHomeTab { Capture, Manual, History, Settings }
 
 private val Peach = Color(0xFFFFB38E)
 private val Mint = Color(0xFFB7F0AD)
@@ -106,7 +109,9 @@ fun MealHomeScreen(
     isAnalyzing: Boolean,
     errorMessage: String?,
     onCaptureMeal: (Bitmap) -> Unit,
-    onAddManualMeal: (String) -> Unit,
+    onAddManualMeal: (String, Double, Double, Double) -> Unit,
+    onUpdateMeal: (MealEntry) -> Unit,
+    onDeleteMeal: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(MealHomeTab.Capture) }
@@ -144,6 +149,12 @@ fun MealHomeScreen(
                         label = { Text("Scanner") }
                     )
                     NavigationBarItem(
+                        selected = selectedTab == MealHomeTab.Manual,
+                        onClick = { selectedTab = MealHomeTab.Manual },
+                        icon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                        label = { Text("Manuell") }
+                    )
+                    NavigationBarItem(
                         selected = selectedTab == MealHomeTab.History,
                         onClick = { selectedTab = MealHomeTab.History },
                         icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
@@ -168,12 +179,18 @@ fun MealHomeScreen(
                     isAnalyzing = isAnalyzing,
                     errorMessage = errorMessage,
                     onCaptureMeal = onCaptureMeal,
-                    onAddManualMeal = onAddManualMeal,
+                    modifier = contentModifier
+                )
+
+                MealHomeTab.Manual -> MealManualEntryScreen(
+                    onSaveMeal = onAddManualMeal,
                     modifier = contentModifier
                 )
 
                 MealHomeTab.History -> MealHistoryScreen(
                     meals = meals,
+                    onEditMeal = onUpdateMeal,
+                    onDeleteMeal = onDeleteMeal,
                     modifier = contentModifier
                 )
 
@@ -192,7 +209,6 @@ private fun MealCaptureScreen(
     isAnalyzing: Boolean,
     errorMessage: String?,
     onCaptureMeal: (Bitmap) -> Unit,
-    onAddManualMeal: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
@@ -219,10 +235,6 @@ private fun MealCaptureScreen(
         NutrientGoal(label = "Protein", consumed = totals.proteinGrams, goal = 60.0, color = Lilac),
         NutrientGoal(label = "Fett", consumed = totals.fatGrams, goal = 70.0, color = Peach)
     )
-
-    var manualDescription by rememberSaveable { mutableStateOf("") }
-    var showManualError by rememberSaveable { mutableStateOf(false) }
-    val focusManager = LocalFocusManager.current
 
     Column(
         modifier = modifier
@@ -294,7 +306,7 @@ private fun MealCaptureScreen(
                         textAlign = TextAlign.Center
                     )
                     Text(
-                        text = "Nimm ein Foto auf oder tippe deine Mahlzeit ein.",
+                        text = "Nimm ein Foto auf oder wechsle zum Tab \"Manuell\".",
                         color = Color.Gray,
                         textAlign = TextAlign.Center,
                         fontSize = 14.sp
@@ -311,83 +323,6 @@ private fun MealCaptureScreen(
                 }
                 if (isAnalyzing) {
                     Text("Bitte warten – ich analysiere das Bild…", color = Color.Gray)
-                }
-
-                HorizontalDivider(color = Color(0x143F2A56))
-
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = "Oder beschreibe deine Mahlzeit",
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF2B2B2B)
-                    )
-                    OutlinedTextField(
-                        value = manualDescription,
-                        onValueChange = {
-                            manualDescription = it
-                            if (showManualError && it.isNotBlank()) {
-                                showManualError = false
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        leadingIcon = {
-                            Icon(Icons.Default.Edit, contentDescription = null)
-                        },
-                        placeholder = { Text("Beschreibe deine Mahlzeit…") },
-                        keyboardOptions = KeyboardOptions(
-                            capitalization = KeyboardCapitalization.Sentences,
-                            imeAction = ImeAction.Done
-                        ),
-                        keyboardActions = KeyboardActions(
-                            onDone = {
-                                if (manualDescription.isBlank()) {
-                                    showManualError = true
-                                } else {
-                                    onAddManualMeal(manualDescription.trim())
-                                    manualDescription = ""
-                                    showManualError = false
-                                    focusManager.clearFocus()
-                                }
-                            }
-                        ),
-                        singleLine = false,
-                        maxLines = 3
-                    )
-                    if (showManualError) {
-                        Text(
-                            text = "Bitte gib eine Beschreibung ein.",
-                            color = Color(0xFF8A0000),
-                            fontSize = 12.sp,
-                            textAlign = TextAlign.Start,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    Button(
-                        onClick = {
-                            if (manualDescription.isBlank()) {
-                                showManualError = true
-                            } else {
-                                onAddManualMeal(manualDescription.trim())
-                                manualDescription = ""
-                                showManualError = false
-                                focusManager.clearFocus()
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = manualDescription.isNotBlank()
-                    ) {
-                        Text("Mahlzeit speichern")
-                    }
-                    Text(
-                        text = "Wir merken uns die Mahlzeit ohne Nährwertangaben.",
-                        color = Color.Gray,
-                        fontSize = 12.sp,
-                        textAlign = TextAlign.Center
-                    )
                 }
             }
         }
@@ -424,6 +359,131 @@ private fun MealCaptureScreen(
                 todayMeals.sortedByDescending { it.recordedAt }.forEach { meal ->
                     MealHistoryCard(meal)
                 }
+            }
+        }
+        Spacer(Modifier.height(96.dp))
+    }
+}
+
+@Composable
+private fun MealManualEntryScreen(
+    onSaveMeal: (String, Double, Double, Double) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var description by rememberSaveable { mutableStateOf("") }
+    var fatInput by rememberSaveable { mutableStateOf("") }
+    var carbInput by rememberSaveable { mutableStateOf("") }
+    var proteinInput by rememberSaveable { mutableStateOf("") }
+    var showDescriptionError by rememberSaveable { mutableStateOf(false) }
+    var showNumberError by rememberSaveable { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+
+    fun attemptSave() {
+        val trimmedDescription = description.trim()
+        val fatValue = parseNumber(fatInput)
+        val carbValue = parseNumber(carbInput)
+        val proteinValue = parseNumber(proteinInput)
+        val descriptionInvalid = trimmedDescription.isEmpty()
+        val numbersInvalid = fatValue == null || carbValue == null || proteinValue == null
+        showDescriptionError = descriptionInvalid
+        showNumberError = numbersInvalid
+        if (!descriptionInvalid && !numbersInvalid) {
+            onSaveMeal(trimmedDescription, fatValue, carbValue, proteinValue)
+            description = ""
+            fatInput = ""
+            carbInput = ""
+            proteinInput = ""
+            showDescriptionError = false
+            showNumberError = false
+            focusManager.clearFocus()
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .padding(horizontal = 16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = "Mahlzeit manuell hinzufügen",
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF2B2B2B)
+        )
+        Text(
+            text = "Beschreibe dein Essen und gib die Nährwerte in Gramm an.",
+            color = Color.Gray,
+            textAlign = TextAlign.Center
+        )
+        KidFriendlyCard(containerColor = Color.White.copy(alpha = 0.98f)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = {
+                        description = it
+                        if (showDescriptionError && it.isNotBlank()) {
+                            showDescriptionError = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Beschreibung") },
+                    placeholder = { Text("z. B. Vollkornbrot mit Käse und Tomate") },
+                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Next
+                    )
+                )
+                if (showDescriptionError) {
+                    Text(
+                        text = "Bitte gib eine Beschreibung ein.",
+                        color = Color(0xFF8A0000),
+                        fontSize = 12.sp
+                    )
+                }
+                NutrientInputRow(
+                    fatInput = fatInput,
+                    carbInput = carbInput,
+                    proteinInput = proteinInput,
+                    onFatChange = {
+                        fatInput = it
+                        if (showNumberError) showNumberError = false
+                    },
+                    onCarbChange = {
+                        carbInput = it
+                        if (showNumberError) showNumberError = false
+                    },
+                    onProteinChange = {
+                        proteinInput = it
+                        if (showNumberError) showNumberError = false
+                    },
+                    onDone = { attemptSave() }
+                )
+                if (showNumberError) {
+                    Text(
+                        text = "Bitte gib gültige Zahlen ein (z. B. 12,5).",
+                        color = Color(0xFF8A0000),
+                        fontSize = 12.sp
+                    )
+                }
+                Button(
+                    onClick = { attemptSave() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Mahlzeit speichern")
+                }
+                Text(
+                    text = "Tipp: Lass ein Feld leer, wenn du den Wert nicht kennst.",
+                    color = Color.Gray,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center
+                )
             }
         }
         Spacer(Modifier.height(96.dp))
@@ -518,9 +578,16 @@ private fun NutrientChip(label: String, value: Double, color: Color) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MealHistoryScreen(meals: List<MealEntry>, modifier: Modifier = Modifier) {
+private fun MealHistoryScreen(
+    meals: List<MealEntry>,
+    onEditMeal: (MealEntry) -> Unit,
+    onDeleteMeal: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
     var showDatePicker by rememberSaveable { mutableStateOf(false) }
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
+    var mealToEdit by remember { mutableStateOf<MealEntry?>(null) }
+    var mealToDelete by remember { mutableStateOf<MealEntry?>(null) }
 
     val filteredMeals = remember(meals, selectedDate) {
         val date = selectedDate
@@ -582,7 +649,11 @@ private fun MealHistoryScreen(meals: List<MealEntry>, modifier: Modifier = Modif
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 items(filteredMeals, key = { it.id }) { meal ->
-                    MealHistoryCard(meal)
+                    MealHistoryCard(
+                        meal = meal,
+                        onEditClick = { mealToEdit = it },
+                        onDeleteClick = { mealToDelete = it }
+                    )
                 }
                 item { Spacer(Modifier.height(96.dp)) }
             }
@@ -615,10 +686,36 @@ private fun MealHistoryScreen(meals: List<MealEntry>, modifier: Modifier = Modif
             DatePicker(state = datePickerState)
         }
     }
+
+    mealToEdit?.let { meal ->
+        EditMealDialog(
+            meal = meal,
+            onDismiss = { mealToEdit = null },
+            onSave = { updated ->
+                onEditMeal(updated)
+                mealToEdit = null
+            }
+        )
+    }
+
+    mealToDelete?.let { meal ->
+        ConfirmDeleteMealDialog(
+            meal = meal,
+            onDismiss = { mealToDelete = null },
+            onConfirm = {
+                onDeleteMeal(meal.id)
+                mealToDelete = null
+            }
+        )
+    }
 }
 
 @Composable
-private fun MealHistoryCard(meal: MealEntry) {
+private fun MealHistoryCard(
+    meal: MealEntry,
+    onEditClick: ((MealEntry) -> Unit)? = null,
+    onDeleteClick: ((MealEntry) -> Unit)? = null
+) {
     KidFriendlyCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(meal.description, fontWeight = FontWeight.SemiBold)
@@ -631,8 +728,232 @@ private fun MealHistoryCard(meal: MealEntry) {
                 NutrientChip(label = "Protein", value = meal.proteinGrams, color = Lilac)
             }
             Text(meal.formattedTimestamp(), color = Color.Gray, fontSize = 12.sp)
+            if (onEditClick != null || onDeleteClick != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    onEditClick?.let { handler ->
+                        TextButton(onClick = { handler(meal) }) {
+                            Icon(Icons.Default.Edit, contentDescription = null)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Bearbeiten")
+                        }
+                    }
+                    onDeleteClick?.let { handler ->
+                        TextButton(onClick = { handler(meal) }) {
+                            Icon(Icons.Default.Delete, contentDescription = null)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Löschen")
+                        }
+                    }
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun EditMealDialog(
+    meal: MealEntry,
+    onDismiss: () -> Unit,
+    onSave: (MealEntry) -> Unit
+) {
+    var description by remember(meal) { mutableStateOf(meal.description) }
+    var fatInput by remember(meal) { mutableStateOf(meal.fatGrams.toEditableString()) }
+    var carbInput by remember(meal) { mutableStateOf(meal.carbGrams.toEditableString()) }
+    var proteinInput by remember(meal) { mutableStateOf(meal.proteinGrams.toEditableString()) }
+    var showDescriptionError by remember { mutableStateOf(false) }
+    var showNumberError by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+
+    fun attemptSave() {
+        val trimmedDescription = description.trim()
+        val fatValue = parseNumber(fatInput)
+        val carbValue = parseNumber(carbInput)
+        val proteinValue = parseNumber(proteinInput)
+        val descriptionInvalid = trimmedDescription.isEmpty()
+        val numbersInvalid = fatValue == null || carbValue == null || proteinValue == null
+        showDescriptionError = descriptionInvalid
+        showNumberError = numbersInvalid
+        if (!descriptionInvalid && !numbersInvalid) {
+            focusManager.clearFocus()
+            onSave(
+                meal.copy(
+                    description = trimmedDescription,
+                    fatGrams = fatValue,
+                    carbGrams = carbValue,
+                    proteinGrams = proteinValue
+                )
+            )
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Mahlzeit bearbeiten") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = {
+                        description = it
+                        if (showDescriptionError && it.isNotBlank()) {
+                            showDescriptionError = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Beschreibung") },
+                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Next
+                    )
+                )
+                if (showDescriptionError) {
+                    Text(
+                        text = "Bitte gib eine Beschreibung ein.",
+                        color = Color(0xFF8A0000),
+                        fontSize = 12.sp
+                    )
+                }
+                NutrientInputRow(
+                    fatInput = fatInput,
+                    carbInput = carbInput,
+                    proteinInput = proteinInput,
+                    onFatChange = {
+                        fatInput = it
+                        if (showNumberError) showNumberError = false
+                    },
+                    onCarbChange = {
+                        carbInput = it
+                        if (showNumberError) showNumberError = false
+                    },
+                    onProteinChange = {
+                        proteinInput = it
+                        if (showNumberError) showNumberError = false
+                    },
+                    onDone = { attemptSave() }
+                )
+                if (showNumberError) {
+                    Text(
+                        text = "Bitte gib gültige Zahlen ein (z. B. 12,5).",
+                        color = Color(0xFF8A0000),
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { attemptSave() }) {
+                Text("Speichern")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Abbrechen")
+            }
+        }
+    )
+}
+
+@Composable
+private fun ConfirmDeleteMealDialog(
+    meal: MealEntry,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Mahlzeit löschen") },
+        text = {
+            Text(
+                text = "Möchtest du \"${meal.description}\" wirklich löschen?",
+                color = Color(0xFF2B2B2B)
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Löschen")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Abbrechen")
+            }
+        }
+    )
+}
+
+@Composable
+private fun NutrientInputRow(
+    fatInput: String,
+    carbInput: String,
+    proteinInput: String,
+    onFatChange: (String) -> Unit,
+    onCarbChange: (String) -> Unit,
+    onProteinChange: (String) -> Unit,
+    onDone: () -> Unit
+) {
+    val focusManager = LocalFocusManager.current
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        OutlinedTextField(
+            value = fatInput,
+            onValueChange = onFatChange,
+            modifier = Modifier.weight(1f),
+            label = { Text("Fett (g)") },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Decimal,
+                imeAction = ImeAction.Next
+            ),
+            keyboardActions = KeyboardActions(
+                onNext = { focusManager.moveFocus(FocusDirection.Next) }
+            ),
+            singleLine = true
+        )
+        OutlinedTextField(
+            value = carbInput,
+            onValueChange = onCarbChange,
+            modifier = Modifier.weight(1f),
+            label = { Text("Kohlenhydrate (g)") },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Decimal,
+                imeAction = ImeAction.Next
+            ),
+            keyboardActions = KeyboardActions(
+                onNext = { focusManager.moveFocus(FocusDirection.Next) }
+            ),
+            singleLine = true
+        )
+        OutlinedTextField(
+            value = proteinInput,
+            onValueChange = onProteinChange,
+            modifier = Modifier.weight(1f),
+            label = { Text("Protein (g)") },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Decimal,
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(onDone = { onDone() }),
+            singleLine = true
+        )
+    }
+}
+
+private fun parseNumber(value: String): Double? {
+    val sanitized = value.trim()
+    if (sanitized.isEmpty()) return 0.0
+    return sanitized.replace(',', '.').toDoubleOrNull()
+}
+
+private fun Double.toEditableString(): String {
+    if (this == 0.0) return ""
+    val formatted = String.format(Locale.US, "%.2f", this)
+    return formatted.trimEnd('0').trimEnd('.')
 }
 
 @Composable
