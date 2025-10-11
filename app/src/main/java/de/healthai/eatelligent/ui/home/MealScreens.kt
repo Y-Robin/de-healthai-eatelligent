@@ -4,7 +4,9 @@ import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,8 +48,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -88,7 +91,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private enum class MealHomeTab { Capture, Manual, History, Settings }
+private enum class MealHomeTab { Capture, History, Settings }
 
 private val Peach = Color(0xFFFFB38E)
 private val Mint = Color(0xFFB7F0AD)
@@ -149,12 +152,6 @@ fun MealHomeScreen(
                         label = { Text("Scanner") }
                     )
                     NavigationBarItem(
-                        selected = selectedTab == MealHomeTab.Manual,
-                        onClick = { selectedTab = MealHomeTab.Manual },
-                        icon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                        label = { Text("Manuell") }
-                    )
-                    NavigationBarItem(
                         selected = selectedTab == MealHomeTab.History,
                         onClick = { selectedTab = MealHomeTab.History },
                         icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
@@ -179,11 +176,8 @@ fun MealHomeScreen(
                     isAnalyzing = isAnalyzing,
                     errorMessage = errorMessage,
                     onCaptureMeal = onCaptureMeal,
-                    modifier = contentModifier
-                )
-
-                MealHomeTab.Manual -> MealManualEntryScreen(
-                    onSaveMeal = onAddManualMeal,
+                    onAddManualMeal = onAddManualMeal,
+                    onDeleteMeal = onDeleteMeal,
                     modifier = contentModifier
                 )
 
@@ -209,6 +203,8 @@ private fun MealCaptureScreen(
     isAnalyzing: Boolean,
     errorMessage: String?,
     onCaptureMeal: (Bitmap) -> Unit,
+    onAddManualMeal: (String, Double, Double, Double) -> Unit,
+    onDeleteMeal: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
@@ -223,6 +219,9 @@ private fun MealCaptureScreen(
             entry.recordedAt.atZone(ZoneId.systemDefault()).toLocalDate() == today
         }
     }
+
+    var showManualDialog by rememberSaveable { mutableStateOf(false) }
+    var mealToDelete by remember { mutableStateOf<MealEntry?>(null) }
 
     val totals = remember(todayMeals) {
         todayMeals.fold(NutrientTotals()) { acc, meal ->
@@ -306,7 +305,7 @@ private fun MealCaptureScreen(
                         textAlign = TextAlign.Center
                     )
                     Text(
-                        text = "Nimm ein Foto auf oder wechsle zum Tab \"Manuell\".",
+                        text = "Nimm ein Foto auf oder füge sie manuell hinzu.",
                         color = Color.Gray,
                         textAlign = TextAlign.Center,
                         fontSize = 14.sp
@@ -320,6 +319,15 @@ private fun MealCaptureScreen(
                     Icon(Icons.Default.CameraAlt, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(if (isAnalyzing) "Wird analysiert…" else "Foto aufnehmen")
+                }
+                OutlinedButton(
+                    onClick = { showManualDialog = true },
+                    enabled = !isAnalyzing,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Manuell eintragen")
                 }
                 if (isAnalyzing) {
                     Text("Bitte warten – ich analysiere das Bild…", color = Color.Gray)
@@ -357,25 +365,48 @@ private fun MealCaptureScreen(
                     color = Color(0xFF2B2B2B)
                 )
                 todayMeals.sortedByDescending { it.recordedAt }.forEach { meal ->
-                    MealHistoryCard(meal)
+                    MealHistoryCard(
+                        meal = meal,
+                        onLongPress = { mealToDelete = it }
+                    )
                 }
             }
         }
         Spacer(Modifier.height(96.dp))
     }
+
+    if (showManualDialog) {
+        ManualMealDialog(
+            onDismiss = { showManualDialog = false },
+            onSaveMeal = { description, fat, carb, protein ->
+                onAddManualMeal(description, fat, carb, protein)
+            }
+        )
+    }
+
+    mealToDelete?.let { meal ->
+        ConfirmDeleteMealDialog(
+            meal = meal,
+            onDismiss = { mealToDelete = null },
+            onConfirm = {
+                onDeleteMeal(meal.id)
+                mealToDelete = null
+            }
+        )
+    }
 }
 
 @Composable
-private fun MealManualEntryScreen(
-    onSaveMeal: (String, Double, Double, Double) -> Unit,
-    modifier: Modifier = Modifier
+private fun ManualMealDialog(
+    onDismiss: () -> Unit,
+    onSaveMeal: (String, Double, Double, Double) -> Unit
 ) {
-    var description by rememberSaveable { mutableStateOf("") }
-    var fatInput by rememberSaveable { mutableStateOf("") }
-    var carbInput by rememberSaveable { mutableStateOf("") }
-    var proteinInput by rememberSaveable { mutableStateOf("") }
-    var showDescriptionError by rememberSaveable { mutableStateOf(false) }
-    var showNumberError by rememberSaveable { mutableStateOf(false) }
+    var description by remember { mutableStateOf("") }
+    var fatInput by remember { mutableStateOf("") }
+    var carbInput by remember { mutableStateOf("") }
+    var proteinInput by remember { mutableStateOf("") }
+    var showDescriptionError by remember { mutableStateOf(false) }
+    var showNumberError by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
 
     fun attemptSave() {
@@ -388,6 +419,7 @@ private fun MealManualEntryScreen(
         showDescriptionError = descriptionInvalid
         showNumberError = numbersInvalid
         if (!descriptionInvalid && !numbersInvalid) {
+            focusManager.clearFocus()
             onSaveMeal(trimmedDescription, fatValue, carbValue, proteinValue)
             description = ""
             fatInput = ""
@@ -395,34 +427,20 @@ private fun MealManualEntryScreen(
             proteinInput = ""
             showDescriptionError = false
             showNumberError = false
-            focusManager.clearFocus()
+            onDismiss()
         }
     }
 
-    Column(
-        modifier = modifier
-            .padding(horizontal = 16.dp)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Spacer(Modifier.height(12.dp))
-        Text(
-            text = "Mahlzeit manuell hinzufügen",
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF2B2B2B)
-        )
-        Text(
-            text = "Beschreibe dein Essen und gib die Nährwerte in Gramm an.",
-            color = Color.Gray,
-            textAlign = TextAlign.Center
-        )
-        KidFriendlyCard(containerColor = Color.White.copy(alpha = 0.98f)) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Mahlzeit manuell hinzufügen") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                    text = "Beschreibe dein Essen und gib die Nährwerte in Gramm an.",
+                    color = Color.Gray,
+                    fontSize = 14.sp
+                )
                 OutlinedTextField(
                     value = description,
                     onValueChange = {
@@ -472,22 +490,22 @@ private fun MealManualEntryScreen(
                         fontSize = 12.sp
                     )
                 }
-                Button(
-                    onClick = { attemptSave() },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Mahlzeit speichern")
-                }
                 Text(
                     text = "Tipp: Lass ein Feld leer, wenn du den Wert nicht kennst.",
                     color = Color.Gray,
-                    fontSize = 12.sp,
-                    textAlign = TextAlign.Center
+                    fontSize = 12.sp
                 )
             }
+        },
+        confirmButton = {
+            Button(onClick = { attemptSave() }) {
+                Text("Speichern")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Abbrechen") }
         }
-        Spacer(Modifier.height(96.dp))
-    }
+    )
 }
 
 private data class NutrientTotals(
@@ -652,7 +670,8 @@ private fun MealHistoryScreen(
                     MealHistoryCard(
                         meal = meal,
                         onEditClick = { mealToEdit = it },
-                        onDeleteClick = { mealToDelete = it }
+                        onDeleteClick = { mealToDelete = it },
+                        onLongPress = { mealToDelete = it }
                     )
                 }
                 item { Spacer(Modifier.height(96.dp)) }
@@ -710,13 +729,22 @@ private fun MealHistoryScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MealHistoryCard(
     meal: MealEntry,
     onEditClick: ((MealEntry) -> Unit)? = null,
-    onDeleteClick: ((MealEntry) -> Unit)? = null
+    onDeleteClick: ((MealEntry) -> Unit)? = null,
+    onLongPress: ((MealEntry) -> Unit)? = null
 ) {
-    KidFriendlyCard {
+    val cardModifier = onLongPress?.let { handler ->
+        Modifier.combinedClickable(
+            onClick = { onEditClick?.invoke(meal) },
+            onLongClick = { handler(meal) }
+        )
+    } ?: Modifier
+
+    KidFriendlyCard(modifier = cardModifier) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(meal.description, fontWeight = FontWeight.SemiBold)
             FlowRow(
