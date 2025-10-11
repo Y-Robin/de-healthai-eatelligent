@@ -16,12 +16,14 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -53,6 +55,7 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
@@ -510,7 +513,6 @@ private fun ConversationDetail(
 @Composable
 private fun ChatBubble(message: ChatMessage) {
     val isUser = message.sender == ChatSender.User
-    val alignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart
     val backgroundColor = when {
         message.contextType == ChatContextType.History -> Color(0xFFEAFBF1)
         message.contextType == ChatContextType.Intro -> Color(0xFFF0ECFF)
@@ -522,31 +524,29 @@ private fun ChatBubble(message: ChatMessage) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
     ) {
-        Column(horizontalAlignment = alignment) {
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = backgroundColor
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = backgroundColor
+        ) {
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 320.dp)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .widthIn(max = 320.dp)
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                ) {
-                    if (message.contextType == ChatContextType.History) {
-                        Text(
-                            text = "Übermittelte Infos",
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF2B2B2B),
-                            fontSize = 13.sp
-                        )
-                        Spacer(Modifier.height(4.dp))
-                    }
+                if (message.contextType == ChatContextType.History) {
                     Text(
-                        text = message.content,
-                        color = contentColor,
-                        fontSize = 14.sp
+                        text = "Übermittelte Infos",
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF2B2B2B),
+                        fontSize = 13.sp
                     )
+                    Spacer(Modifier.height(4.dp))
                 }
+                Text(
+                    text = message.content,
+                    color = contentColor,
+                    fontSize = 14.sp
+                )
             }
         }
     }
