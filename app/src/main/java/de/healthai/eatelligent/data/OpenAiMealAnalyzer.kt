@@ -9,9 +9,11 @@ import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
 
 class OpenAiMealAnalyzer(private val apiKey: String) {
     private val client = OkHttpClient()
+    private val numberRegex = Regex("[-+]?\\d+(?:[.,]\\d+)?")
 
     suspend fun analyze(base64Image: String): MealAnalysis = withContext(Dispatchers.IO) {
         require(apiKey.isNotBlank()) {
@@ -211,14 +213,34 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
             json.has("choices") -> parseChatChoices(json)
             else -> throw IllegalStateException("Unexpected OpenAI response structure")
         }
-        val structured = JSONObject(text)
-        val macros = structured.optJSONObject("macros") ?: JSONObject()
-        return MealAnalysis(
-            description = structured.optString("description"),
-            fatGrams = macros.optDouble("fatGrams", 0.0),
-            carbGrams = macros.optDouble("carbGrams", 0.0),
-            proteinGrams = macros.optDouble("proteinGrams", 0.0)
-        )
+        val structured = runCatching { JSONObject(text) }.getOrNull()
+        val fallbackDescription = primarySentence(text)
+
+        if (structured != null) {
+            val macros = structured.optJSONObject("macros")
+                ?: structured.optJSONObject("macroNutrients")
+                ?: structured.optJSONObject("nutrients")
+                ?: structured
+
+            val fat = readNutrient(macros, "fatGrams", "fat", "fat_g", "fett", "fatgrams")
+            val carbs = readNutrient(macros, "carbGrams", "carbs", "carb_g", "kohlenhyd", "carbohydrates")
+            val protein = readNutrient(macros, "proteinGrams", "protein", "protein_g", "eiweiß", "eiweiss")
+
+            val description = structured.optString("description").ifBlank { fallbackDescription }
+
+            val cleaned = MealAnalysis(
+                description = description,
+                fatGrams = fat,
+                carbGrams = carbs,
+                proteinGrams = protein
+            ).sanitize()
+
+            if (cleaned.fatGrams > 0.0 || cleaned.carbGrams > 0.0 || cleaned.proteinGrams > 0.0) {
+                return cleaned
+            }
+        }
+
+        return parseFallbackFromText(text, fallbackDescription)
     }
 
     private fun parseResponsesOutput(json: JSONObject): String {
@@ -246,5 +268,61 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
             throw IllegalStateException("Assistant message contained no text content")
         }
         return content
+    }
+
+    private fun readNutrient(json: JSONObject, vararg keys: String): Double {
+        for (key in keys) {
+            val rawValue = json.opt(key)
+            val parsed = parseNumber(rawValue)
+            if (parsed != null) return sanitizeValue(parsed)
+        }
+        return 0.0
+    }
+
+    private fun parseNumber(value: Any?): Double? = when (value) {
+        is Number -> value.toDouble()
+        is String -> numberRegex.find(value)?.value?.replace(',', '.')?.toDoubleOrNull()
+        else -> null
+    }
+
+    private fun sanitizeValue(value: Double): Double =
+        value.takeIf { it.isFinite() }?.coerceAtLeast(0.0)?.coerceAtMost(500.0) ?: 0.0
+
+    private fun MealAnalysis.sanitize(): MealAnalysis = copy(
+        fatGrams = sanitizeValue(fatGrams),
+        carbGrams = sanitizeValue(carbGrams),
+        proteinGrams = sanitizeValue(proteinGrams),
+        description = description.ifBlank { "Leckere Mahlzeit" }
+    )
+
+    private fun parseFallbackFromText(text: String, fallbackDescription: String): MealAnalysis {
+        fun findValue(vararg keywords: String): Double {
+            for (keyword in keywords) {
+                val regex = Regex("$keyword[^\\d]*([-+]?\\d+(?:[.,]\\d+)?)", RegexOption.IGNORE_CASE)
+                val match = regex.find(text)
+                val value = match?.groupValues?.getOrNull(1)?.replace(',', '.')?.toDoubleOrNull()
+                if (value != null) return sanitizeValue(value)
+            }
+            return 0.0
+        }
+
+        val description = fallbackDescription.ifBlank { "Leckere Mahlzeit" }
+        return MealAnalysis(
+            description = description,
+            fatGrams = findValue("fett", "fat"),
+            carbGrams = findValue("kohlenhyd", "carb"),
+            proteinGrams = findValue("protein", "eiweiß", "eiweiss")
+        ).sanitize()
+    }
+
+    private fun primarySentence(text: String): String {
+        val firstLine = text.lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: return "Leckere Mahlzeit"
+        val sentence = firstLine.split('.').firstOrNull()?.trim().orEmpty()
+        if (sentence.isNotBlank()) {
+            return sentence.replaceFirstChar { char ->
+                if (char.isLowerCase()) char.titlecase(Locale.getDefault()) else char.toString()
+            }
+        }
+        return "Leckere Mahlzeit"
     }
 }
