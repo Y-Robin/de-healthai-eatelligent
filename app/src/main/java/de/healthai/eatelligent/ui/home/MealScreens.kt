@@ -148,17 +148,27 @@ fun MealHomeScreen(
     }
 
     fun createConversation(): ChatConversation {
+        val carryOverSummary = buildPreviousConversationSummary(conversations)
+        val initialMessages = mutableStateListOf(
+            ChatMessage(
+                id = UUID.randomUUID().toString(),
+                sender = ChatSender.Assistant,
+                content = "Hier ist eine aktuelle Zusammenfassung deiner Daten:\n\n$profileSummary",
+                contextType = ChatContextType.Intro
+            )
+        )
+        carryOverSummary?.let { summary ->
+            initialMessages += ChatMessage(
+                id = UUID.randomUUID().toString(),
+                sender = ChatSender.Assistant,
+                content = summary,
+                contextType = ChatContextType.CarryOver
+            )
+        }
         val conversation = ChatConversation(
             id = UUID.randomUUID().toString(),
             title = "Chat ${conversations.size + 1}",
-            messages = mutableStateListOf(
-                ChatMessage(
-                    id = UUID.randomUUID().toString(),
-                    sender = ChatSender.Assistant,
-                    content = "Hier ist eine aktuelle Zusammenfassung deiner Daten:\n\n$profileSummary",
-                    contextType = ChatContextType.Intro
-                )
-            )
+            messages = initialMessages
         )
         conversations += conversation
         activeConversationId = conversation.id
@@ -175,12 +185,24 @@ fun MealHomeScreen(
             content = trimmed
         )
         conversation.messages.removeAll { it.contextType == ChatContextType.History }
-        val contextPayload = buildConversationContext(profileSummary, conversation.messages)
+        val plainMessages = conversation.messages.filter { it.contextType == null }
+        val contextPayload = buildConversationContext(profileSummary, plainMessages)
         conversation.messages += ChatMessage(
             id = UUID.randomUUID().toString(),
             sender = ChatSender.Assistant,
             content = contextPayload,
             contextType = ChatContextType.History
+        )
+        val assistantReply = generateAssistantReply(
+            userMessage = trimmed,
+            configuration = userConfiguration,
+            meals = meals,
+            conversationMessages = plainMessages
+        )
+        conversation.messages += ChatMessage(
+            id = UUID.randomUUID().toString(),
+            sender = ChatSender.Assistant,
+            content = assistantReply
         )
     }
 
@@ -515,6 +537,7 @@ private fun ChatBubble(message: ChatMessage) {
     val isUser = message.sender == ChatSender.User
     val backgroundColor = when {
         message.contextType == ChatContextType.History -> Color(0xFFEAFBF1)
+        message.contextType == ChatContextType.CarryOver -> Color(0xFFE3F0FF)
         message.contextType == ChatContextType.Intro -> Color(0xFFF0ECFF)
         isUser -> Color(0xFF7048E8)
         else -> Color(0xFFF6F6F6)
@@ -533,9 +556,14 @@ private fun ChatBubble(message: ChatMessage) {
                     .widthIn(max = 320.dp)
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                if (message.contextType == ChatContextType.History) {
+                val header = when (message.contextType) {
+                    ChatContextType.History -> "Übermittelte Infos"
+                    ChatContextType.CarryOver -> "Überblick aus früheren Chats"
+                    else -> null
+                }
+                if (header != null) {
                     Text(
-                        text = "Übermittelte Infos",
+                        text = header,
                         fontWeight = FontWeight.SemiBold,
                         color = Color(0xFF2B2B2B),
                         fontSize = 13.sp
@@ -615,6 +643,111 @@ private fun buildConversationContext(
     }.trimEnd()
 }
 
+private fun buildPreviousConversationSummary(
+    conversations: List<ChatConversation>
+): String? {
+    val previousMessages = conversations
+        .flatMap { conversation ->
+            conversation.messages.filter { it.contextType == null }
+        }
+        .takeLast(8)
+    if (previousMessages.isEmpty()) return null
+    val summary = previousMessages.joinToString(separator = "\n") { message ->
+        val prefix = if (message.sender == ChatSender.User) "Du" else "Begleiter"
+        "• $prefix: ${message.content}"
+    }
+    return buildString {
+        appendLine("Ich habe die wichtigsten Punkte aus früheren Chats übernommen:")
+        append(summary)
+    }.trimEnd()
+}
+
+private fun generateAssistantReply(
+    userMessage: String,
+    configuration: UserConfiguration,
+    meals: List<MealEntry>,
+    conversationMessages: List<ChatMessage>
+): String {
+    val sb = StringBuilder()
+    val lowercaseMessage = userMessage.lowercase(Locale.getDefault())
+    val name = configuration.name.takeIf { it.isNotBlank() }
+    if (name != null) {
+        sb.appendLine("Danke für deine Nachricht, $name!")
+    } else {
+        sb.appendLine("Danke für deine Nachricht!")
+    }
+    sb.appendLine("Du hast geschrieben: \"$userMessage\".")
+
+    val today = LocalDate.now()
+    val todaysMeals = meals.filter {
+        it.recordedAt.atZone(ZoneId.systemDefault()).toLocalDate() == today
+    }
+    val totals = todaysMeals.fold(NutrientTotals()) { acc, meal -> acc + meal }
+    if (todaysMeals.isNotEmpty()) {
+        sb.appendLine(
+            "Heute hast du ${todaysMeals.size} Mahlzeiten erfasst und damit " +
+                "${String.format(Locale.getDefault(), "%.1f g", totals.carbGrams)} Kohlenhydrate, " +
+                "${String.format(Locale.getDefault(), "%.1f g", totals.proteinGrams)} Protein und " +
+                "${String.format(Locale.getDefault(), "%.1f g", totals.fatGrams)} Fett aufgenommen."
+        )
+    } else {
+        sb.appendLine("Heute wurde noch keine Mahlzeit erfasst – vielleicht möchtest du mit einer starten?")
+    }
+
+    val macroGoals = mapOf(
+        "kohlenhydrate" to 200.0,
+        "protein" to 60.0,
+        "fett" to 70.0
+    )
+    val consumedByMacro = mapOf(
+        "kohlenhydrate" to totals.carbGrams,
+        "protein" to totals.proteinGrams,
+        "fett" to totals.fatGrams
+    )
+
+    fun macroStatus(label: String): String {
+        val goal = macroGoals.getValue(label)
+        val consumed = consumedByMacro.getValue(label)
+        val diff = goal - consumed
+        val formattedDiff = String.format(Locale.getDefault(), "%.1f g", kotlin.math.abs(diff))
+        val displayLabel = label.replaceFirstChar { char ->
+            if (char.isLowerCase()) char.titlecase(Locale.getDefault()) else char.toString()
+        }
+        return when {
+            diff > 5 -> "Dir fehlen noch $formattedDiff bis zum Tagesziel für $displayLabel."
+            diff < -5 -> "Du liegst $formattedDiff über dem Ziel bei $displayLabel – vielleicht morgen etwas weniger einplanen."
+            else -> "Du liegst bei $displayLabel im grünen Bereich."
+        }
+    }
+
+    val focusedMacro = macroGoals.keys.firstOrNull { it in lowercaseMessage }
+    if (focusedMacro != null) {
+        sb.appendLine(macroStatus(focusedMacro))
+    } else {
+        sb.appendLine(macroStatus("kohlenhydrate"))
+        sb.appendLine(macroStatus("protein"))
+        sb.appendLine(macroStatus("fett"))
+    }
+
+    val lastMeal = meals.maxByOrNull { it.recordedAt }
+    lastMeal?.let { meal ->
+        val formattedTime = meal.recordedAt
+            .atZone(ZoneId.systemDefault())
+            .format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm", Locale.getDefault()))
+        sb.appendLine("Die letzte Mahlzeit war ${meal.description} am $formattedTime.")
+    }
+
+    val previousTopic = conversationMessages
+        .asReversed()
+        .firstOrNull { it.sender == ChatSender.User && it.content != userMessage }
+    previousTopic?.let { lastQuestion ->
+        sb.appendLine("Wir hatten zuvor über \"${lastQuestion.content}\" gesprochen – sag mir gern, ob wir darauf aufbauen sollen.")
+    }
+
+    sb.append("Wenn du etwas Neues ausprobieren möchtest oder Unterstützung brauchst, sag einfach Bescheid!")
+    return sb.toString().trimEnd()
+}
+
 private data class ChatConversation(
     val id: String,
     val title: String,
@@ -630,7 +763,7 @@ private data class ChatMessage(
 
 private enum class ChatSender { User, Assistant }
 
-private enum class ChatContextType { Intro, History }
+private enum class ChatContextType { Intro, History, CarryOver }
 
 @Composable
 private fun MealCaptureScreen(
