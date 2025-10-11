@@ -4,22 +4,27 @@ import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -28,17 +33,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.Divider
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -46,17 +56,21 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -81,6 +95,8 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import de.healthai.eatelligent.Gender
 import de.healthai.eatelligent.UserConfiguration
 import de.healthai.eatelligent.data.MealEntry
@@ -90,6 +106,8 @@ import java.time.Period
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.UUID
+import androidx.compose.runtime.snapshots.SnapshotStateList
 
 private enum class MealHomeTab { Capture, History, Settings }
 
@@ -118,6 +136,84 @@ fun MealHomeScreen(
     modifier: Modifier = Modifier
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(MealHomeTab.Capture) }
+    var isChatCenterOpen by rememberSaveable { mutableStateOf(false) }
+    var activeConversationId by rememberSaveable { mutableStateOf<String?>(null) }
+    val conversations = remember { mutableStateListOf<ChatConversation>() }
+    val profileSummary = remember(userConfiguration, meals) {
+        buildProfileSummary(userConfiguration, meals)
+    }
+
+    LaunchedEffect(conversations.size) {
+        if (conversations.isNotEmpty() && activeConversationId == null) {
+            activeConversationId = conversations.first().id
+        }
+    }
+
+    fun createConversation(): ChatConversation {
+        val carryOverSummary = buildPreviousConversationSummary(conversations)
+        val initialMessages = mutableStateListOf(
+            ChatMessage(
+                id = UUID.randomUUID().toString(),
+                sender = ChatSender.Assistant,
+                content = "Hier ist eine aktuelle Zusammenfassung deiner Daten:\n\n$profileSummary",
+                contextType = ChatContextType.Intro
+            )
+        )
+        carryOverSummary?.let { summary ->
+            initialMessages += ChatMessage(
+                id = UUID.randomUUID().toString(),
+                sender = ChatSender.Assistant,
+                content = summary,
+                contextType = ChatContextType.CarryOver
+            )
+        }
+        val conversation = ChatConversation(
+            id = UUID.randomUUID().toString(),
+            title = "Chat ${conversations.size + 1}",
+            messages = initialMessages
+        )
+        conversations += conversation
+        activeConversationId = conversation.id
+        return conversation
+    }
+
+    fun sendChatMessage(conversationId: String, message: String) {
+        val trimmed = message.trim()
+        if (trimmed.isEmpty()) return
+        val conversation = conversations.firstOrNull { it.id == conversationId } ?: return
+        conversation.messages += ChatMessage(
+            id = UUID.randomUUID().toString(),
+            sender = ChatSender.User,
+            content = trimmed
+        )
+        conversation.messages.removeAll { it.contextType == ChatContextType.History }
+        val plainMessages = conversation.messages.filter { it.contextType == null }
+        val contextPayload = buildConversationContext(profileSummary, plainMessages)
+        conversation.messages += ChatMessage(
+            id = UUID.randomUUID().toString(),
+            sender = ChatSender.Assistant,
+            content = contextPayload,
+            contextType = ChatContextType.History
+        )
+        val assistantReply = generateAssistantReply(
+            userMessage = trimmed,
+            configuration = userConfiguration,
+            meals = meals,
+            conversationMessages = plainMessages
+        )
+        conversation.messages += ChatMessage(
+            id = UUID.randomUUID().toString(),
+            sender = ChatSender.Assistant,
+            content = assistantReply
+        )
+    }
+
+    fun openChatCenter() {
+        if (conversations.isEmpty()) {
+            createConversation()
+        }
+        isChatCenterOpen = true
+    }
 
     Box(
         modifier = modifier
@@ -194,8 +290,700 @@ fun MealHomeScreen(
                 )
             }
         }
+
+        ChatLauncherButton(
+            onClick = { openChatCenter() },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = 96.dp)
+        )
+    }
+
+    if (isChatCenterOpen) {
+        val effectiveActiveId = activeConversationId ?: conversations.firstOrNull()?.id
+        ChatCenterDialog(
+            conversations = conversations,
+            activeConversationId = effectiveActiveId,
+            onDismiss = { isChatCenterOpen = false },
+            onNewChat = {
+                createConversation()
+            },
+            onSelectConversation = { activeConversationId = it },
+            onSendMessage = { id, text -> sendChatMessage(id, text) }
+        )
     }
 }
+
+@Composable
+private fun ChatLauncherButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    FloatingActionButton(
+        onClick = onClick,
+        modifier = modifier,
+        containerColor = Color(0xFF7048E8),
+        contentColor = Color.White
+    ) {
+        Icon(Icons.Default.Chat, contentDescription = "Chat öffnen")
+    }
+}
+
+@Composable
+private fun ChatCenterDialog(
+    conversations: SnapshotStateList<ChatConversation>,
+    activeConversationId: String?,
+    onDismiss: () -> Unit,
+    onNewChat: () -> Unit,
+    onSelectConversation: (String) -> Unit,
+    onSendMessage: (String, String) -> Unit
+) {
+    var isFocusMode by rememberSaveable { mutableStateOf(false) }
+    val selectedConversation = conversations.firstOrNull { it.id == activeConversationId }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color(0xFFF9F7FF)
+        ) {
+            if (isFocusMode && selectedConversation != null) {
+                FocusedConversation(
+                    conversation = selectedConversation,
+                    onSendMessage = { text -> onSendMessage(selectedConversation.id, text) },
+                    onBackToOverview = { isFocusMode = false },
+                    onNewChat = {
+                        onNewChat()
+                        isFocusMode = true
+                    },
+                    onDismiss = onDismiss
+                )
+            } else {
+                ChatOverview(
+                    conversations = conversations,
+                    activeConversationId = activeConversationId,
+                    onDismiss = onDismiss,
+                    onNewChat = {
+                        onNewChat()
+                        isFocusMode = true
+                    },
+                    onSelectConversation = {
+                        onSelectConversation(it)
+                        isFocusMode = true
+                    },
+                    onSendMessage = onSendMessage,
+                    selectedConversation = selectedConversation
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatOverview(
+    conversations: SnapshotStateList<ChatConversation>,
+    activeConversationId: String?,
+    onDismiss: () -> Unit,
+    onNewChat: () -> Unit,
+    onSelectConversation: (String) -> Unit,
+    onSendMessage: (String, String) -> Unit,
+    selectedConversation: ChatConversation?
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    text = "Begleit-Chat",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF211946)
+                )
+                Text(
+                    text = "Wähle einen Chat aus oder starte einen neuen.",
+                    color = Color(0xFF6B6B7A),
+                    fontSize = 13.sp
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(onClick = onNewChat) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Neuer Chat")
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Schließen")
+                }
+            }
+        }
+
+        Divider(color = Color(0xFFE4DAFF))
+
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .widthIn(min = 220.dp)
+                    .fillMaxHeight(),
+                shape = RoundedCornerShape(24.dp),
+                tonalElevation = 2.dp,
+                color = Color.White
+            ) {
+                ConversationList(
+                    conversations = conversations,
+                    activeConversationId = activeConversationId,
+                    onSelectConversation = onSelectConversation,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            if (selectedConversation != null) {
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    shape = RoundedCornerShape(32.dp),
+                    tonalElevation = 3.dp,
+                    color = Color.White
+                ) {
+                    ConversationDetail(
+                        conversation = selectedConversation,
+                        onSendMessage = { text -> onSendMessage(selectedConversation.id, text) },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            } else {
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    shape = RoundedCornerShape(32.dp),
+                    color = Color(0xFFEDE9FF)
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "Starte einen neuen Chat, um loszulegen.",
+                            color = Color(0xFF6B6B7A),
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FocusedConversation(
+    conversation: ChatConversation,
+    onSendMessage: (String) -> Unit,
+    onBackToOverview: () -> Unit,
+    onNewChat: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBackToOverview) {
+                    Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Übersicht anzeigen")
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = conversation.title,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 22.sp,
+                        color = Color(0xFF211946)
+                    )
+                    val lastUserMessage = conversation.messages.lastOrNull { it.sender == ChatSender.User }
+                    lastUserMessage?.let {
+                        Text(
+                            text = "Letzte Frage: ${it.content}",
+                            fontSize = 13.sp,
+                            color = Color(0xFF6B6B7A),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onNewChat) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Neuer Chat")
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Schließen")
+                }
+            }
+        }
+
+        Surface(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 12.dp),
+            shape = RoundedCornerShape(36.dp),
+            tonalElevation = 4.dp,
+            color = Color.White
+        ) {
+            ConversationDetail(
+                conversation = conversation,
+                onSendMessage = onSendMessage,
+                modifier = Modifier.fillMaxSize(),
+                showHeader = false
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConversationList(
+    conversations: SnapshotStateList<ChatConversation>,
+    activeConversationId: String?,
+    onSelectConversation: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.Top
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(conversations, key = { it.id }) { conversation ->
+                val isActive = conversation.id == activeConversationId
+                val background = if (isActive) Color(0xFFF4F0FF) else Color.Transparent
+                val borderColor = if (isActive) Color(0xFF7048E8).copy(alpha = 0.4f) else Color.Transparent
+                Column(
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(background)
+                        .border(
+                            width = 1.dp,
+                            color = borderColor,
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                        .clickable { onSelectConversation(conversation.id) }
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                ) {
+                    Text(
+                        text = conversation.title,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF2B2B2B)
+                    )
+                    val lastMessage = conversation.messages.lastOrNull()?.content ?: "Noch keine Nachrichten"
+                    Text(
+                        text = lastMessage,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        color = Color.Gray,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConversationDetail(
+    conversation: ChatConversation,
+    onSendMessage: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    headerContent: (@Composable () -> Unit)? = null,
+    showHeader: Boolean = true
+) {
+    Column(
+        modifier = modifier
+            .fillMaxHeight()
+            .background(Color.White)
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            if (showHeader) {
+                headerContent?.invoke() ?: DefaultConversationHeader(conversation)
+                Divider(color = Color(0xFFEEE5FF))
+            } else {
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(conversation.messages, key = { it.id }) { message ->
+                    ChatBubble(message = message)
+                }
+            }
+        }
+
+        var input by rememberSaveable(conversation.id) { mutableStateOf("") }
+        val focusManager = LocalFocusManager.current
+        val questionSuggestions = remember(conversation.id) {
+            listOf(
+                "Wie liege ich heute im Vergleich zu meinen Makrozielen?",
+                "Hast du eine Idee für eine ausgewogene nächste Mahlzeit?",
+                "Welche Mahlzeit hatte die meisten Proteine?"
+            )
+        }
+
+        if (questionSuggestions.isNotEmpty()) {
+            SuggestionRow(
+                suggestions = questionSuggestions,
+                onSuggestionSelected = { input = it }
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            OutlinedTextField(
+                value = input,
+                onValueChange = { input = it },
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("Nachricht oder Frage eingeben…") },
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Sentences,
+                    imeAction = ImeAction.Send
+                ),
+                keyboardActions = KeyboardActions(onSend = {
+                    if (input.isNotBlank()) {
+                        onSendMessage(input)
+                        input = ""
+                        focusManager.clearFocus()
+                    }
+                }),
+                minLines = 1,
+                maxLines = 4
+            )
+            Button(
+                onClick = {
+                    if (input.isNotBlank()) {
+                        onSendMessage(input)
+                        input = ""
+                        focusManager.clearFocus()
+                    }
+                },
+                enabled = input.isNotBlank()
+            ) {
+                Text("Senden")
+            }
+        }
+    }
+}
+
+@Composable
+private fun DefaultConversationHeader(conversation: ChatConversation) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = conversation.title,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 18.sp,
+                color = Color(0xFF2B2B2B)
+            )
+            val lastUserMessage = conversation.messages.lastOrNull { it.sender == ChatSender.User }
+            lastUserMessage?.let {
+                Text(
+                    text = "Letzte Frage: ${it.content}",
+                    color = Color.Gray,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SuggestionRow(
+    suggestions: List<String>,
+    onSuggestionSelected: (String) -> Unit
+) {
+    FlowRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        suggestions.forEach { suggestion ->
+            AssistChip(
+                onClick = { onSuggestionSelected(suggestion) },
+                label = { Text(suggestion) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChatBubble(message: ChatMessage) {
+    val isUser = message.sender == ChatSender.User
+    val backgroundColor = when {
+        message.contextType == ChatContextType.History -> Color(0xFFEAFBF1)
+        message.contextType == ChatContextType.CarryOver -> Color(0xFFE3F0FF)
+        message.contextType == ChatContextType.Intro -> Color(0xFFF0ECFF)
+        isUser -> Color(0xFF7048E8)
+        else -> Color(0xFFF6F6F6)
+    }
+    val contentColor = if (isUser) Color.White else Color(0xFF2B2B2B)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+    ) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = backgroundColor
+        ) {
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 320.dp)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                val header = when (message.contextType) {
+                    ChatContextType.History -> "Übermittelte Infos"
+                    ChatContextType.CarryOver -> "Überblick aus früheren Chats"
+                    else -> null
+                }
+                if (header != null) {
+                    Text(
+                        text = header,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF2B2B2B),
+                        fontSize = 13.sp
+                    )
+                    Spacer(Modifier.height(4.dp))
+                }
+                Text(
+                    text = message.content,
+                    color = contentColor,
+                    fontSize = 14.sp
+                )
+            }
+        }
+    }
+}
+
+private fun buildProfileSummary(
+    configuration: UserConfiguration,
+    meals: List<MealEntry>
+): String {
+    val now = LocalDate.now()
+    val ageYears = configuration.birthday?.let { Period.between(it, now).years }
+    val todaysMeals = meals.filter {
+        it.recordedAt.atZone(ZoneId.systemDefault()).toLocalDate() == now
+    }
+    val totals = todaysMeals.fold(NutrientTotals()) { acc, meal -> acc + meal }
+    val lastMeal = meals.maxByOrNull { it.recordedAt }
+    val builder = StringBuilder()
+    builder.appendLine("Name: ${configuration.name.ifBlank { "Nicht angegeben" }}")
+    builder.appendLine("Geschlecht: ${if (configuration.gender == Gender.Girl) "Mädchen" else "Junge"}")
+    builder.appendLine(
+        "Alter: " + (ageYears?.let { "$it Jahre" } ?: "Nicht angegeben")
+    )
+    builder.appendLine(
+        "Diagnose: ${configuration.diagnosis.ifBlank { "Nicht angegeben" }}"
+    )
+    builder.appendLine("Gespeicherte Mahlzeiten: ${meals.size}")
+    if (todaysMeals.isNotEmpty()) {
+        builder.appendLine(
+            "Heutige Makros – Fett: ${String.format(Locale.getDefault(), "%.1f g", totals.fatGrams)}, " +
+                "Kohlenhydrate: ${String.format(Locale.getDefault(), "%.1f g", totals.carbGrams)}, " +
+                "Protein: ${String.format(Locale.getDefault(), "%.1f g", totals.proteinGrams)}"
+        )
+    } else {
+        builder.appendLine("Heute wurden noch keine Mahlzeiten erfasst.")
+    }
+    lastMeal?.let { meal ->
+        val formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm", Locale.getDefault())
+        builder.appendLine(
+            "Letzte Mahlzeit: ${meal.description} am ${meal.recordedAt.atZone(ZoneId.systemDefault()).format(formatter)}"
+        )
+    }
+    return builder.toString().trimEnd()
+}
+
+private fun buildConversationContext(
+    profileSummary: String,
+    messages: List<ChatMessage>
+): String {
+    val history = messages
+        .filter { it.contextType == null }
+        .joinToString(separator = "\n\n") { message ->
+            val speaker = if (message.sender == ChatSender.User) "Du" else "Begleiter"
+            "$speaker: ${message.content}"
+        }
+    val historySection = if (history.isBlank()) {
+        "Bisher gibt es noch keinen Gesprächsverlauf."
+    } else {
+        history
+    }
+    return buildString {
+        appendLine("Profil-Überblick:")
+        appendLine(profileSummary)
+        appendLine()
+        appendLine("Bisheriger Chat-Verlauf:")
+        append(historySection)
+    }.trimEnd()
+}
+
+private fun buildPreviousConversationSummary(
+    conversations: List<ChatConversation>
+): String? {
+    val previousMessages = conversations
+        .flatMap { conversation ->
+            conversation.messages.filter { it.contextType == null }
+        }
+        .takeLast(8)
+    if (previousMessages.isEmpty()) return null
+    val summary = previousMessages.joinToString(separator = "\n") { message ->
+        val prefix = if (message.sender == ChatSender.User) "Du" else "Begleiter"
+        "• $prefix: ${message.content}"
+    }
+    return buildString {
+        appendLine("Ich habe die wichtigsten Punkte aus früheren Chats übernommen:")
+        append(summary)
+    }.trimEnd()
+}
+
+private fun generateAssistantReply(
+    userMessage: String,
+    configuration: UserConfiguration,
+    meals: List<MealEntry>,
+    conversationMessages: List<ChatMessage>
+): String {
+    val sb = StringBuilder()
+    val lowercaseMessage = userMessage.lowercase(Locale.getDefault())
+    val name = configuration.name.takeIf { it.isNotBlank() }
+    if (name != null) {
+        sb.appendLine("Danke für deine Nachricht, $name!")
+    } else {
+        sb.appendLine("Danke für deine Nachricht!")
+    }
+    sb.appendLine("Du hast geschrieben: \"$userMessage\".")
+
+    val today = LocalDate.now()
+    val todaysMeals = meals.filter {
+        it.recordedAt.atZone(ZoneId.systemDefault()).toLocalDate() == today
+    }
+    val totals = todaysMeals.fold(NutrientTotals()) { acc, meal -> acc + meal }
+    if (todaysMeals.isNotEmpty()) {
+        sb.appendLine(
+            "Heute hast du ${todaysMeals.size} Mahlzeiten erfasst und damit " +
+                "${String.format(Locale.getDefault(), "%.1f g", totals.carbGrams)} Kohlenhydrate, " +
+                "${String.format(Locale.getDefault(), "%.1f g", totals.proteinGrams)} Protein und " +
+                "${String.format(Locale.getDefault(), "%.1f g", totals.fatGrams)} Fett aufgenommen."
+        )
+    } else {
+        sb.appendLine("Heute wurde noch keine Mahlzeit erfasst – vielleicht möchtest du mit einer starten?")
+    }
+
+    val macroGoals = mapOf(
+        "kohlenhydrate" to 200.0,
+        "protein" to 60.0,
+        "fett" to 70.0
+    )
+    val consumedByMacro = mapOf(
+        "kohlenhydrate" to totals.carbGrams,
+        "protein" to totals.proteinGrams,
+        "fett" to totals.fatGrams
+    )
+
+    fun macroStatus(label: String): String {
+        val goal = macroGoals.getValue(label)
+        val consumed = consumedByMacro.getValue(label)
+        val diff = goal - consumed
+        val formattedDiff = String.format(Locale.getDefault(), "%.1f g", kotlin.math.abs(diff))
+        val displayLabel = label.replaceFirstChar { char ->
+            if (char.isLowerCase()) char.titlecase(Locale.getDefault()) else char.toString()
+        }
+        return when {
+            diff > 5 -> "Dir fehlen noch $formattedDiff bis zum Tagesziel für $displayLabel."
+            diff < -5 -> "Du liegst $formattedDiff über dem Ziel bei $displayLabel – vielleicht morgen etwas weniger einplanen."
+            else -> "Du liegst bei $displayLabel im grünen Bereich."
+        }
+    }
+
+    val focusedMacro = macroGoals.keys.firstOrNull { it in lowercaseMessage }
+    if (focusedMacro != null) {
+        sb.appendLine(macroStatus(focusedMacro))
+    } else {
+        sb.appendLine(macroStatus("kohlenhydrate"))
+        sb.appendLine(macroStatus("protein"))
+        sb.appendLine(macroStatus("fett"))
+    }
+
+    val lastMeal = meals.maxByOrNull { it.recordedAt }
+    lastMeal?.let { meal ->
+        val formattedTime = meal.recordedAt
+            .atZone(ZoneId.systemDefault())
+            .format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm", Locale.getDefault()))
+        sb.appendLine("Die letzte Mahlzeit war ${meal.description} am $formattedTime.")
+    }
+
+    val previousTopic = conversationMessages
+        .asReversed()
+        .firstOrNull { it.sender == ChatSender.User && it.content != userMessage }
+    previousTopic?.let { lastQuestion ->
+        sb.appendLine("Wir hatten zuvor über \"${lastQuestion.content}\" gesprochen – sag mir gern, ob wir darauf aufbauen sollen.")
+    }
+
+    sb.append("Wenn du etwas Neues ausprobieren möchtest oder Unterstützung brauchst, sag einfach Bescheid!")
+    return sb.toString().trimEnd()
+}
+
+private data class ChatConversation(
+    val id: String,
+    val title: String,
+    val messages: SnapshotStateList<ChatMessage>
+)
+
+private data class ChatMessage(
+    val id: String,
+    val sender: ChatSender,
+    val content: String,
+    val contextType: ChatContextType? = null
+)
+
+private enum class ChatSender { User, Assistant }
+
+private enum class ChatContextType { Intro, History, CarryOver }
 
 @Composable
 private fun MealCaptureScreen(
