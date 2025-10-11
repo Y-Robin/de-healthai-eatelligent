@@ -52,25 +52,31 @@ class MealViewModel(
 
     init {
         viewModelScope.launch {
-            runCatching { repository.readMeals() }
-                .onSuccess { _meals.value = it }
-                .onFailure { _error.value = it.message }
+            try {
+                _meals.value = repository.readMeals()
+            } catch (throwable: Throwable) {
+                _error.value = throwable.message
+            }
         }
         viewModelScope.launch {
-            runCatching { userConfigurationStorage.read() }
-                .onSuccess { stored -> _userConfiguration.value = stored }
-                .onFailure { throwable -> _error.value = throwable.message }
-            _isLoadingUserConfiguration.value = false
+            try {
+                _userConfiguration.value = userConfigurationStorage.read()
+            } catch (throwable: Throwable) {
+                _error.value = throwable.message
+            } finally {
+                _isLoadingUserConfiguration.value = false
+            }
         }
     }
 
     fun saveUserConfiguration(configuration: UserConfiguration) {
         _userConfiguration.value = configuration
         viewModelScope.launch {
-            runCatching { userConfigurationStorage.write(configuration) }
-                .onFailure { throwable ->
-                    _error.value = throwable.message
-                }
+            try {
+                userConfigurationStorage.write(configuration)
+            } catch (throwable: Throwable) {
+                _error.value = throwable.message
+            }
         }
     }
 
@@ -201,21 +207,21 @@ class MealViewModel(
             }
     }
 
-    private fun writeMeals(
+    private suspend fun writeMeals(
         updatedMeals: List<MealEntry>,
         latest: MealEntry?,
         removedId: String? = null
     ) {
-        val writeResult = runCatching { repository.writeMeals(updatedMeals) }
-        writeResult.onSuccess {
+        try {
+            repository.writeMeals(updatedMeals)
             _meals.value = updatedMeals
+            _error.value = null
             if (removedId != null && _latestResult.value?.id == removedId) {
                 _latestResult.value = null
             } else {
                 _latestResult.value = latest
             }
-        }
-        writeResult.onFailure { throwable ->
+        } catch (throwable: Throwable) {
             _error.value = throwable.message
         }
     }
