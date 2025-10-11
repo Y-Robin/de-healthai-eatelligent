@@ -52,25 +52,31 @@ class MealViewModel(
 
     init {
         viewModelScope.launch {
-            runCatching { repository.readMeals() }
-                .onSuccess { _meals.value = it }
-                .onFailure { _error.value = it.message }
+            try {
+                _meals.value = repository.readMeals()
+            } catch (throwable: Throwable) {
+                _error.value = throwable.message
+            }
         }
         viewModelScope.launch {
-            runCatching { userConfigurationStorage.read() }
-                .onSuccess { stored -> _userConfiguration.value = stored }
-                .onFailure { throwable -> _error.value = throwable.message }
-            _isLoadingUserConfiguration.value = false
+            try {
+                _userConfiguration.value = userConfigurationStorage.read()
+            } catch (throwable: Throwable) {
+                _error.value = throwable.message
+            } finally {
+                _isLoadingUserConfiguration.value = false
+            }
         }
     }
 
     fun saveUserConfiguration(configuration: UserConfiguration) {
         _userConfiguration.value = configuration
         viewModelScope.launch {
-            runCatching { userConfigurationStorage.write(configuration) }
-                .onFailure { throwable ->
-                    _error.value = throwable.message
-                }
+            try {
+                userConfigurationStorage.write(configuration)
+            } catch (throwable: Throwable) {
+                _error.value = throwable.message
+            }
         }
     }
 
@@ -92,7 +98,12 @@ class MealViewModel(
         }
     }
 
-    fun addManualMeal(description: String) {
+    fun addManualMeal(
+        description: String,
+        fatGrams: Double,
+        carbGrams: Double,
+        proteinGrams: Double
+    ) {
         val trimmed = description.trim()
         if (trimmed.isEmpty()) return
         viewModelScope.launch {
@@ -100,11 +111,27 @@ class MealViewModel(
                 id = UUID.randomUUID().toString(),
                 recordedAt = Instant.now(),
                 description = trimmed,
-                fatGrams = 0.0,
-                carbGrams = 0.0,
-                proteinGrams = 0.0
+                fatGrams = fatGrams,
+                carbGrams = carbGrams,
+                proteinGrams = proteinGrams
             )
             persistMealEntry(manualEntry)
+        }
+    }
+
+    fun updateMeal(entry: MealEntry) {
+        viewModelScope.launch {
+            val updatedMeals = _meals.value.map { existing ->
+                if (existing.id == entry.id) entry else existing
+            }
+            writeMeals(updatedMeals, entry)
+        }
+    }
+
+    fun deleteMeal(id: String) {
+        viewModelScope.launch {
+            val updatedMeals = _meals.value.filterNot { it.id == id }
+            writeMeals(updatedMeals, latest = null, removedId = id)
         }
     }
 
@@ -149,15 +176,8 @@ class MealViewModel(
             return
         }
         val updatedMeals = _meals.value + newEntry
-        val writeResult = runCatching { repository.writeMeals(updatedMeals) }
-        writeResult.onSuccess {
-            _meals.value = updatedMeals
-            _latestResult.value = newEntry
-            lastSavedFingerprint = fingerprint to now
-        }
-        writeResult.onFailure { throwable ->
-            _error.value = throwable.message
-        }
+        writeMeals(updatedMeals, newEntry)
+        lastSavedFingerprint = fingerprint to now
     }
 
     private fun mealFingerprint(entry: MealEntry): String = buildString {
@@ -185,5 +205,24 @@ class MealViewModel(
                     return MealViewModel(analyzer, repository, configurationStorage) as T
                 }
             }
+    }
+
+    private suspend fun writeMeals(
+        updatedMeals: List<MealEntry>,
+        latest: MealEntry?,
+        removedId: String? = null
+    ) {
+        try {
+            repository.writeMeals(updatedMeals)
+            _meals.value = updatedMeals
+            _error.value = null
+            if (removedId != null && _latestResult.value?.id == removedId) {
+                _latestResult.value = null
+            } else {
+                _latestResult.value = latest
+            }
+        } catch (throwable: Throwable) {
+            _error.value = throwable.message
+        }
     }
 }
