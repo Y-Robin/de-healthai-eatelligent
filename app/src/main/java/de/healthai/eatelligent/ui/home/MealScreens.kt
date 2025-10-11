@@ -96,6 +96,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import de.healthai.eatelligent.Gender
 import de.healthai.eatelligent.UserConfiguration
 import de.healthai.eatelligent.data.MealEntry
@@ -335,105 +336,221 @@ private fun ChatCenterDialog(
     onSendMessage: (String, String) -> Unit
 ) {
     var isFocusMode by rememberSaveable { mutableStateOf(false) }
-    Dialog(onDismissRequest = onDismiss) {
+    val selectedConversation = conversations.firstOrNull { it.id == activeConversationId }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Surface(
-            modifier = Modifier
-                .fillMaxWidth(0.95f)
-                .fillMaxHeight(0.85f),
-            shape = RoundedCornerShape(28.dp),
-            tonalElevation = 6.dp
+            modifier = Modifier.fillMaxSize(),
+            color = Color(0xFFF9F7FF)
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                val selectedConversation = conversations.firstOrNull { it.id == activeConversationId }
+            if (isFocusMode && selectedConversation != null) {
+                FocusedConversation(
+                    conversation = selectedConversation,
+                    onSendMessage = { text -> onSendMessage(selectedConversation.id, text) },
+                    onBackToOverview = { isFocusMode = false },
+                    onNewChat = {
+                        onNewChat()
+                        isFocusMode = true
+                    },
+                    onDismiss = onDismiss
+                )
+            } else {
+                ChatOverview(
+                    conversations = conversations,
+                    activeConversationId = activeConversationId,
+                    onDismiss = onDismiss,
+                    onNewChat = {
+                        onNewChat()
+                        isFocusMode = true
+                    },
+                    onSelectConversation = {
+                        onSelectConversation(it)
+                        isFocusMode = true
+                    },
+                    onSendMessage = onSendMessage,
+                    selectedConversation = selectedConversation
+                )
+            }
+        }
+    }
+}
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "Begleit-Chat",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF2B2B2B)
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        if (selectedConversation != null && conversations.isNotEmpty()) {
-                            TextButton(onClick = { isFocusMode = !isFocusMode }) {
-                                val label = if (isFocusMode) "Übersicht" else "Fokus"
-                                Text(label)
-                            }
-                        }
-                        TextButton(onClick = onNewChat) {
-                            Icon(Icons.Default.Add, contentDescription = null)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Neuer Chat")
-                        }
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.Close, contentDescription = "Schließen")
-                        }
-                    }
+@Composable
+private fun ChatOverview(
+    conversations: SnapshotStateList<ChatConversation>,
+    activeConversationId: String?,
+    onDismiss: () -> Unit,
+    onNewChat: () -> Unit,
+    onSelectConversation: (String) -> Unit,
+    onSendMessage: (String, String) -> Unit,
+    selectedConversation: ChatConversation?
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    text = "Begleit-Chat",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF211946)
+                )
+                Text(
+                    text = "Wähle einen Chat aus oder starte einen neuen.",
+                    color = Color(0xFF6B6B7A),
+                    fontSize = 13.sp
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(onClick = onNewChat) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Neuer Chat")
                 }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Schließen")
+                }
+            }
+        }
 
-                Divider()
+        Divider(color = Color(0xFFE4DAFF))
 
-                if (isFocusMode && selectedConversation != null) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .widthIn(min = 220.dp)
+                    .fillMaxHeight(),
+                shape = RoundedCornerShape(24.dp),
+                tonalElevation = 2.dp,
+                color = Color.White
+            ) {
+                ConversationList(
+                    conversations = conversations,
+                    activeConversationId = activeConversationId,
+                    onSelectConversation = onSelectConversation,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            if (selectedConversation != null) {
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    shape = RoundedCornerShape(32.dp),
+                    tonalElevation = 3.dp,
+                    color = Color.White
+                ) {
                     ConversationDetail(
                         conversation = selectedConversation,
                         onSendMessage = { text -> onSendMessage(selectedConversation.id, text) },
-                        modifier = Modifier.fillMaxSize(),
-                        isFocusMode = true,
-                        onExitFocus = { isFocusMode = false }
+                        modifier = Modifier.fillMaxSize()
                     )
-                } else {
-                    Row(modifier = Modifier.fillMaxSize()) {
-                        ConversationList(
-                            conversations = conversations,
-                            activeConversationId = activeConversationId,
-                            onSelectConversation = {
-                                onSelectConversation(it)
-                                isFocusMode = false
-                            },
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .widthIn(min = 180.dp)
-                                .background(Color(0xFFF5F1FF))
+                }
+            } else {
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    shape = RoundedCornerShape(32.dp),
+                    color = Color(0xFFEDE9FF)
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "Starte einen neuen Chat, um loszulegen.",
+                            color = Color(0xFF6B6B7A),
+                            fontSize = 14.sp
                         )
-
-                        Divider(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .width(1.dp),
-                            color = Color(0xFFDDD6FF)
-                        )
-
-                        if (selectedConversation != null) {
-                            ConversationDetail(
-                                conversation = selectedConversation,
-                                onSendMessage = { text ->
-                                    onSendMessage(selectedConversation.id, text)
-                                },
-                                modifier = Modifier.weight(1f),
-                                onRequestFocus = { isFocusMode = true }
-                            )
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    "Starte einen neuen Chat, um loszulegen.",
-                                    color = Color.Gray
-                                )
-                            }
-                        }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun FocusedConversation(
+    conversation: ChatConversation,
+    onSendMessage: (String) -> Unit,
+    onBackToOverview: () -> Unit,
+    onNewChat: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBackToOverview) {
+                    Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Übersicht anzeigen")
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = conversation.title,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 22.sp,
+                        color = Color(0xFF211946)
+                    )
+                    val lastUserMessage = conversation.messages.lastOrNull { it.sender == ChatSender.User }
+                    lastUserMessage?.let {
+                        Text(
+                            text = "Letzte Frage: ${it.content}",
+                            fontSize = 13.sp,
+                            color = Color(0xFF6B6B7A),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onNewChat) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Neuer Chat")
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Schließen")
+                }
+            }
+        }
+
+        Surface(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 12.dp),
+            shape = RoundedCornerShape(36.dp),
+            tonalElevation = 4.dp,
+            color = Color.White
+        ) {
+            ConversationDetail(
+                conversation = conversation,
+                onSendMessage = onSendMessage,
+                modifier = Modifier.fillMaxSize(),
+                showHeader = false
+            )
         }
     }
 }
@@ -457,8 +574,8 @@ private fun ConversationList(
         ) {
             items(conversations, key = { it.id }) { conversation ->
                 val isActive = conversation.id == activeConversationId
-                val background = if (isActive) Color.White else Color.Transparent
-                val borderColor = if (isActive) Color(0xFF7048E8) else Color.Transparent
+                val background = if (isActive) Color(0xFFF4F0FF) else Color.Transparent
+                val borderColor = if (isActive) Color(0xFF7048E8).copy(alpha = 0.4f) else Color.Transparent
                 Column(
                     modifier = Modifier
                         .padding(horizontal = 12.dp)
@@ -496,9 +613,8 @@ private fun ConversationDetail(
     conversation: ChatConversation,
     onSendMessage: (String) -> Unit,
     modifier: Modifier = Modifier,
-    onRequestFocus: (() -> Unit)? = null,
-    onExitFocus: (() -> Unit)? = null,
-    isFocusMode: Boolean = false
+    headerContent: (@Composable () -> Unit)? = null,
+    showHeader: Boolean = true
 ) {
     Column(
         modifier = modifier
@@ -506,43 +622,12 @@ private fun ConversationDetail(
             .background(Color.White)
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = conversation.title,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 18.sp,
-                        color = Color(0xFF2B2B2B)
-                    )
-                    val lastUserMessage = conversation.messages.lastOrNull { it.sender == ChatSender.User }
-                    lastUserMessage?.let {
-                        Text(
-                            text = "Letzte Frage: ${it.content}",
-                            color = Color.Gray,
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-                if (isFocusMode && onExitFocus != null) {
-                    TextButton(onClick = onExitFocus) {
-                        Text("Zur Übersicht")
-                    }
-                } else if (!isFocusMode && onRequestFocus != null) {
-                    TextButton(onClick = onRequestFocus) {
-                        Text("Fokus öffnen")
-                    }
-                }
+            if (showHeader) {
+                headerContent?.invoke() ?: DefaultConversationHeader(conversation)
+                Divider(color = Color(0xFFEEE5FF))
+            } else {
+                Spacer(modifier = Modifier.height(12.dp))
             }
-
-            Divider(color = Color(0xFFEEE5FF))
 
             LazyColumn(
                 modifier = Modifier
@@ -610,6 +695,36 @@ private fun ConversationDetail(
                 enabled = input.isNotBlank()
             ) {
                 Text("Senden")
+            }
+        }
+    }
+}
+
+@Composable
+private fun DefaultConversationHeader(conversation: ChatConversation) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = conversation.title,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 18.sp,
+                color = Color(0xFF2B2B2B)
+            )
+            val lastUserMessage = conversation.messages.lastOrNull { it.sender == ChatSender.User }
+            lastUserMessage?.let {
+                Text(
+                    text = "Letzte Frage: ${it.content}",
+                    color = Color.Gray,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
