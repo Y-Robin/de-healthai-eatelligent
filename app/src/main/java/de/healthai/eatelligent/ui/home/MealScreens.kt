@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
@@ -44,6 +45,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -62,11 +64,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import de.healthai.eatelligent.Gender
 import de.healthai.eatelligent.UserConfiguration
 import de.healthai.eatelligent.data.MealEntry
@@ -98,6 +105,7 @@ fun MealHomeScreen(
     isAnalyzing: Boolean,
     errorMessage: String?,
     onCaptureMeal: (Bitmap) -> Unit,
+    onAddManualMeal: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(MealHomeTab.Capture) }
@@ -159,6 +167,7 @@ fun MealHomeScreen(
                     isAnalyzing = isAnalyzing,
                     errorMessage = errorMessage,
                     onCaptureMeal = onCaptureMeal,
+                    onAddManualMeal = onAddManualMeal,
                     modifier = contentModifier
                 )
 
@@ -182,6 +191,7 @@ private fun MealCaptureScreen(
     isAnalyzing: Boolean,
     errorMessage: String?,
     onCaptureMeal: (Bitmap) -> Unit,
+    onAddManualMeal: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
@@ -208,6 +218,10 @@ private fun MealCaptureScreen(
         NutrientGoal(label = "Protein", consumed = totals.proteinGrams, goal = 60.0, color = Lilac),
         NutrientGoal(label = "Fett", consumed = totals.fatGrams, goal = 70.0, color = Peach)
     )
+
+    var manualDescription by rememberSaveable { mutableStateOf("") }
+    var showManualError by rememberSaveable { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
 
     Column(
         modifier = modifier
@@ -285,6 +299,88 @@ private fun MealCaptureScreen(
                 if (isAnalyzing) {
                     Text("Bitte warten – ich analysiere das Bild…", color = Color.Gray)
                 }
+            }
+        }
+        KidFriendlyCard(containerColor = Color.White.copy(alpha = 0.98f)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Keine Kamera? Kein Problem!",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF2B2B2B),
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "Du kannst deine Mahlzeit auch einfach beschreiben.",
+                    color = Color.Gray,
+                    textAlign = TextAlign.Center
+                )
+                OutlinedTextField(
+                    value = manualDescription,
+                    onValueChange = {
+                        manualDescription = it
+                        if (showManualError && it.isNotBlank()) {
+                            showManualError = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    leadingIcon = {
+                        Icon(Icons.Default.Edit, contentDescription = null)
+                    },
+                    placeholder = { Text("Beschreibe deine Mahlzeit…") },
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            if (manualDescription.isBlank()) {
+                                showManualError = true
+                            } else {
+                                onAddManualMeal(manualDescription.trim())
+                                manualDescription = ""
+                                showManualError = false
+                                focusManager.clearFocus()
+                            }
+                        }
+                    ),
+                    singleLine = false,
+                    maxLines = 3
+                )
+                if (showManualError) {
+                    Text(
+                        text = "Bitte gib eine Beschreibung ein.",
+                        color = Color(0xFF8A0000),
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Start,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                Button(
+                    onClick = {
+                        if (manualDescription.isBlank()) {
+                            showManualError = true
+                        } else {
+                            onAddManualMeal(manualDescription.trim())
+                            manualDescription = ""
+                            showManualError = false
+                            focusManager.clearFocus()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = manualDescription.isNotBlank()
+                ) {
+                    Text("Mahlzeit speichern")
+                }
+                Text(
+                    text = "Wir merken uns die Mahlzeit ohne Nährwertangaben.",
+                    color = Color.Gray,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center
+                )
             }
         }
         if (todayMeals.isEmpty()) {
