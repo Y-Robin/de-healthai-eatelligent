@@ -32,7 +32,8 @@ fun EatelligentApp(viewModel: MealViewModel) {
                 meals = meals,
                 isAnalyzing = isAnalyzing,
                 errorMessage = error,
-                onCaptureMeal = viewModel::analyzeMeal
+                onCaptureMeal = viewModel::analyzeMeal,
+                onAddMealManually = viewModel::addManualMeal
             )
         }
     }

@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -43,6 +44,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -65,6 +67,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.healthai.eatelligent.Gender
@@ -98,6 +102,7 @@ fun MealHomeScreen(
     isAnalyzing: Boolean,
     errorMessage: String?,
     onCaptureMeal: (Bitmap) -> Unit,
+    onAddMealManually: (description: String, fatGrams: Double, carbGrams: Double, proteinGrams: Double) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(MealHomeTab.Capture) }
@@ -159,6 +164,7 @@ fun MealHomeScreen(
                     isAnalyzing = isAnalyzing,
                     errorMessage = errorMessage,
                     onCaptureMeal = onCaptureMeal,
+                    onAddMealManually = onAddMealManually,
                     modifier = contentModifier
                 )
 
@@ -182,6 +188,7 @@ private fun MealCaptureScreen(
     isAnalyzing: Boolean,
     errorMessage: String?,
     onCaptureMeal: (Bitmap) -> Unit,
+    onAddMealManually: (description: String, fatGrams: Double, carbGrams: Double, proteinGrams: Double) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
@@ -189,6 +196,8 @@ private fun MealCaptureScreen(
             onCaptureMeal(bitmap)
         }
     }
+
+    var showManualEntry by rememberSaveable { mutableStateOf(false) }
 
     val today = LocalDate.now()
     val todayMeals = remember(meals, today) {
@@ -217,6 +226,15 @@ private fun MealCaptureScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(Modifier.height(12.dp))
+        if (showManualEntry) {
+            ManualMealDialog(
+                onDismiss = { showManualEntry = false },
+                onSave = { description, fat, carb, protein ->
+                    onAddMealManually(description, fat, carb, protein)
+                    showManualEntry = false
+                }
+            )
+        }
         KidFriendlyCard {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(
@@ -287,6 +305,41 @@ private fun MealCaptureScreen(
                 }
             }
         }
+        KidFriendlyCard {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    Modifier
+                        .size(72.dp)
+                        .clip(CircleShape)
+                        .background(Sky.copy(alpha = 0.35f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.Info,
+                        contentDescription = null,
+                        tint = Color(0xFF1B4965)
+                    )
+                }
+                Text(
+                    text = "Mahlzeit selbst eintragen",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF2B2B2B),
+                    textAlign = TextAlign.Center
+                )
+                Button(onClick = { showManualEntry = true }) {
+                    Text("Manuell eingeben")
+                }
+                Text(
+                    text = "Gib Beschreibung und Nährwerte manuell ein.",
+                    color = Color.Gray,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
         if (todayMeals.isEmpty()) {
             KidFriendlyCard {
                 Column(
@@ -324,6 +377,102 @@ private fun MealCaptureScreen(
         }
         Spacer(Modifier.height(96.dp))
     }
+}
+
+@Composable
+private fun ManualMealDialog(
+    onDismiss: () -> Unit,
+    onSave: (description: String, fatGrams: Double, carbGrams: Double, proteinGrams: Double) -> Unit
+) {
+    var description by rememberSaveable { mutableStateOf("") }
+    var fatText by rememberSaveable { mutableStateOf("") }
+    var carbText by rememberSaveable { mutableStateOf("") }
+    var proteinText by rememberSaveable { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Mahlzeit manuell hinzufügen") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Trage Beschreibung und einzelne Nährwerte ein.")
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = {
+                        description = it
+                        error = null
+                    },
+                    label = { Text("Beschreibung") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = fatText,
+                    onValueChange = {
+                        fatText = it
+                        error = null
+                    },
+                    label = { Text("Fett (g)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = carbText,
+                    onValueChange = {
+                        carbText = it
+                        error = null
+                    },
+                    label = { Text("Kohlenhydrate (g)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = proteinText,
+                    onValueChange = {
+                        proteinText = it
+                        error = null
+                    },
+                    label = { Text("Protein (g)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                error?.let {
+                    Text(
+                        text = it,
+                        color = Color(0xFF8A0000),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val normalizedFat = fatText.replace(',', '.').toDoubleOrNull()
+                    val normalizedCarb = carbText.replace(',', '.').toDoubleOrNull()
+                    val normalizedProtein = proteinText.replace(',', '.').toDoubleOrNull()
+                    when {
+                        description.isBlank() -> error = "Bitte gib eine Beschreibung ein."
+                        normalizedFat == null || normalizedCarb == null || normalizedProtein == null ->
+                            error = "Bitte gib gültige Zahlenwerte ein."
+                        else -> {
+                            onSave(description.trim(), normalizedFat, normalizedCarb, normalizedProtein)
+                            description = ""
+                            fatText = ""
+                            carbText = ""
+                            proteinText = ""
+                        }
+                    }
+                }
+            ) {
+                Text("Speichern")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Abbrechen")
+            }
+        }
+    )
 }
 
 private data class NutrientTotals(

@@ -75,6 +75,20 @@ class MealViewModel(private val analyzer: OpenAiMealAnalyzer, private val reposi
         return android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
     }
 
+    fun addManualMeal(description: String, fatGrams: Double, carbGrams: Double, proteinGrams: Double) {
+        viewModelScope.launch {
+            val newEntry = MealEntry(
+                id = UUID.randomUUID().toString(),
+                recordedAt = Instant.now(),
+                description = description,
+                fatGrams = fatGrams,
+                carbGrams = carbGrams,
+                proteinGrams = proteinGrams
+            )
+            persistEntry(newEntry)
+        }
+    }
+
     private suspend fun persistAnalysis(analysis: MealAnalysis) {
         val newEntry = MealEntry(
             id = UUID.randomUUID().toString(),
@@ -84,6 +98,10 @@ class MealViewModel(private val analyzer: OpenAiMealAnalyzer, private val reposi
             carbGrams = analysis.carbGrams,
             proteinGrams = analysis.proteinGrams
         )
+        persistEntry(newEntry)
+    }
+
+    private suspend fun persistEntry(newEntry: MealEntry) {
         val updatedMeals = _meals.value + newEntry
         val writeResult = runCatching { repository.writeMeals(updatedMeals) }
         writeResult.onSuccess {
