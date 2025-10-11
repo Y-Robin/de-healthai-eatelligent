@@ -44,6 +44,10 @@ class MealViewModel(
     private val _userConfiguration = MutableStateFlow<UserConfiguration?>(null)
     val userConfiguration: StateFlow<UserConfiguration?> = _userConfiguration.asStateFlow()
 
+    private val _isLoadingUserConfiguration = MutableStateFlow(true)
+    val isLoadingUserConfiguration: StateFlow<Boolean> =
+        _isLoadingUserConfiguration.asStateFlow()
+
     private var lastSavedFingerprint: Pair<String, Long>? = null
 
     init {
@@ -55,6 +59,8 @@ class MealViewModel(
         viewModelScope.launch {
             runCatching { userConfigurationStorage.read() }
                 .onSuccess { stored -> _userConfiguration.value = stored }
+                .onFailure { throwable -> _error.value = throwable.message }
+            _isLoadingUserConfiguration.value = false
         }
     }
 
@@ -125,8 +131,21 @@ class MealViewModel(
         val fingerprint = mealFingerprint(newEntry)
         val now = System.currentTimeMillis()
         val lastSaved = lastSavedFingerprint
-        if (lastSaved != null && lastSaved.first == fingerprint && now - lastSaved.second < DUPLICATE_WINDOW_MS) {
+        if (lastSaved != null && lastSaved.first == fingerprint &&
+            now - lastSaved.second < DUPLICATE_WINDOW_MS
+        ) {
             _latestResult.value = newEntry
+            return
+        }
+
+        val existingDuplicate = _meals.value.firstOrNull { existing ->
+            mealFingerprint(existing) == fingerprint &&
+                kotlin.math.abs(existing.recordedAt.toEpochMilli() - newEntry.recordedAt.toEpochMilli()) <=
+                STORED_DUPLICATE_WINDOW_MS
+        }
+
+        if (existingDuplicate != null) {
+            _latestResult.value = existingDuplicate
             return
         }
         val updatedMeals = _meals.value + newEntry
@@ -153,6 +172,7 @@ class MealViewModel(
 
     companion object {
         private const val DUPLICATE_WINDOW_MS = 5_000L
+        private const val STORED_DUPLICATE_WINDOW_MS = 30_000L
 
         fun provideFactory(context: android.content.Context): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {

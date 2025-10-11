@@ -41,6 +41,7 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -263,9 +264,9 @@ private fun MealCaptureScreen(
                 )
             }
         }
-        KidFriendlyCard {
+        KidFriendlyCard(containerColor = Color.White.copy(alpha = 0.98f)) {
             Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Box(
@@ -281,16 +282,28 @@ private fun MealCaptureScreen(
                         tint = Color(0xFF3F2A56)
                     )
                 }
-                Text(
-                    text = "Halte deine nächste Mahlzeit fest",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF2B2B2B),
-                    textAlign = TextAlign.Center
-                )
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Halte deine nächste Mahlzeit fest",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF2B2B2B),
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = "Nimm ein Foto auf oder tippe deine Mahlzeit ein.",
+                        color = Color.Gray,
+                        textAlign = TextAlign.Center,
+                        fontSize = 14.sp
+                    )
+                }
                 Button(
                     onClick = { launcher.launch(null) },
-                    enabled = !isAnalyzing
+                    enabled = !isAnalyzing,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Default.CameraAlt, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
@@ -299,44 +312,62 @@ private fun MealCaptureScreen(
                 if (isAnalyzing) {
                     Text("Bitte warten – ich analysiere das Bild…", color = Color.Gray)
                 }
-            }
-        }
-        KidFriendlyCard(containerColor = Color.White.copy(alpha = 0.98f)) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "Keine Kamera? Kein Problem!",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF2B2B2B),
-                    textAlign = TextAlign.Center
-                )
-                Text(
-                    text = "Du kannst deine Mahlzeit auch einfach beschreiben.",
-                    color = Color.Gray,
-                    textAlign = TextAlign.Center
-                )
-                OutlinedTextField(
-                    value = manualDescription,
-                    onValueChange = {
-                        manualDescription = it
-                        if (showManualError && it.isNotBlank()) {
-                            showManualError = false
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    leadingIcon = {
-                        Icon(Icons.Default.Edit, contentDescription = null)
-                    },
-                    placeholder = { Text("Beschreibe deine Mahlzeit…") },
-                    keyboardOptions = KeyboardOptions(
-                        capitalization = KeyboardCapitalization.Sentences,
-                        imeAction = ImeAction.Done
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onDone = {
+
+                HorizontalDivider(color = Color(0x143F2A56))
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Oder beschreibe deine Mahlzeit",
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF2B2B2B)
+                    )
+                    OutlinedTextField(
+                        value = manualDescription,
+                        onValueChange = {
+                            manualDescription = it
+                            if (showManualError && it.isNotBlank()) {
+                                showManualError = false
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = {
+                            Icon(Icons.Default.Edit, contentDescription = null)
+                        },
+                        placeholder = { Text("Beschreibe deine Mahlzeit…") },
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.Sentences,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                if (manualDescription.isBlank()) {
+                                    showManualError = true
+                                } else {
+                                    onAddManualMeal(manualDescription.trim())
+                                    manualDescription = ""
+                                    showManualError = false
+                                    focusManager.clearFocus()
+                                }
+                            }
+                        ),
+                        singleLine = false,
+                        maxLines = 3
+                    )
+                    if (showManualError) {
+                        Text(
+                            text = "Bitte gib eine Beschreibung ein.",
+                            color = Color(0xFF8A0000),
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Start,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    Button(
+                        onClick = {
                             if (manualDescription.isBlank()) {
                                 showManualError = true
                             } else {
@@ -345,42 +376,19 @@ private fun MealCaptureScreen(
                                 showManualError = false
                                 focusManager.clearFocus()
                             }
-                        }
-                    ),
-                    singleLine = false,
-                    maxLines = 3
-                )
-                if (showManualError) {
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = manualDescription.isNotBlank()
+                    ) {
+                        Text("Mahlzeit speichern")
+                    }
                     Text(
-                        text = "Bitte gib eine Beschreibung ein.",
-                        color = Color(0xFF8A0000),
+                        text = "Wir merken uns die Mahlzeit ohne Nährwertangaben.",
+                        color = Color.Gray,
                         fontSize = 12.sp,
-                        textAlign = TextAlign.Start,
-                        modifier = Modifier.fillMaxWidth()
+                        textAlign = TextAlign.Center
                     )
                 }
-                Button(
-                    onClick = {
-                        if (manualDescription.isBlank()) {
-                            showManualError = true
-                        } else {
-                            onAddManualMeal(manualDescription.trim())
-                            manualDescription = ""
-                            showManualError = false
-                            focusManager.clearFocus()
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = manualDescription.isNotBlank()
-                ) {
-                    Text("Mahlzeit speichern")
-                }
-                Text(
-                    text = "Wir merken uns die Mahlzeit ohne Nährwertangaben.",
-                    color = Color.Gray,
-                    fontSize = 12.sp,
-                    textAlign = TextAlign.Center
-                )
             }
         }
         if (todayMeals.isEmpty()) {
