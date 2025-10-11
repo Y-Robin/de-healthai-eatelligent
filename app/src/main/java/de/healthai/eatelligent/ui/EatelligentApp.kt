@@ -14,7 +14,6 @@ import de.healthai.eatelligent.ui.home.MealViewModel
 fun EatelligentApp(viewModel: MealViewModel) {
     val userConfiguration by viewModel.userConfiguration.collectAsState()
     val meals by viewModel.meals.collectAsState()
-    val latest by viewModel.latestResult.collectAsState()
     val isAnalyzing by viewModel.isAnalyzing.collectAsState()
     val error by viewModel.error.collectAsState()
 
@@ -31,7 +30,6 @@ fun EatelligentApp(viewModel: MealViewModel) {
             MealHomeScreen(
                 userConfiguration = currentConfiguration,
                 meals = meals,
-                latestResult = latest,
                 isAnalyzing = isAnalyzing,
                 errorMessage = error,
                 onCaptureMeal = viewModel::analyzeMeal
