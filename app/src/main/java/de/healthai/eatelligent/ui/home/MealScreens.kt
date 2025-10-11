@@ -3,6 +3,7 @@ package de.healthai.eatelligent.ui.home
 import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,24 +28,30 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -52,6 +59,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -61,8 +70,10 @@ import androidx.compose.ui.unit.sp
 import de.healthai.eatelligent.Gender
 import de.healthai.eatelligent.UserConfiguration
 import de.healthai.eatelligent.data.MealEntry
+import java.time.Instant
 import java.time.LocalDate
 import java.time.Period
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -84,7 +95,6 @@ private val FriendlyGradient = Brush.verticalGradient(
 fun MealHomeScreen(
     userConfiguration: UserConfiguration,
     meals: List<MealEntry>,
-    latestResult: MealEntry?,
     isAnalyzing: Boolean,
     errorMessage: String?,
     onCaptureMeal: (Bitmap) -> Unit,
@@ -145,7 +155,7 @@ fun MealHomeScreen(
 
             when (selectedTab) {
                 MealHomeTab.Capture -> MealCaptureScreen(
-                    latestResult = latestResult,
+                    meals = meals,
                     isAnalyzing = isAnalyzing,
                     errorMessage = errorMessage,
                     onCaptureMeal = onCaptureMeal,
@@ -168,7 +178,7 @@ fun MealHomeScreen(
 
 @Composable
 private fun MealCaptureScreen(
-    latestResult: MealEntry?,
+    meals: List<MealEntry>,
     isAnalyzing: Boolean,
     errorMessage: String?,
     onCaptureMeal: (Bitmap) -> Unit,
@@ -180,6 +190,25 @@ private fun MealCaptureScreen(
         }
     }
 
+    val today = LocalDate.now()
+    val todayMeals = remember(meals, today) {
+        meals.filter { entry ->
+            entry.recordedAt.atZone(ZoneId.systemDefault()).toLocalDate() == today
+        }
+    }
+
+    val totals = remember(todayMeals) {
+        todayMeals.fold(NutrientTotals()) { acc, meal ->
+            acc + meal
+        }
+    }
+
+    val nutrientGoals = listOf(
+        NutrientGoal(label = "Kohlenhydrate", consumed = totals.carbGrams, goal = 200.0, color = Mint),
+        NutrientGoal(label = "Protein", consumed = totals.proteinGrams, goal = 60.0, color = Lilac),
+        NutrientGoal(label = "Fett", consumed = totals.fatGrams, goal = 70.0, color = Peach)
+    )
+
     Column(
         modifier = modifier
             .padding(horizontal = 16.dp)
@@ -188,6 +217,38 @@ private fun MealCaptureScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(Modifier.height(12.dp))
+        KidFriendlyCard {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                    text = "Deine Tagesziele",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF2B2B2B)
+                )
+                Text(
+                    text = "So viel hast du heute schon geschafft!",
+                    color = Color.Gray
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    maxItemsInEachRow = 3
+                ) {
+                    nutrientGoals.forEach { goal ->
+                        NutrientGoalRing(goal)
+                    }
+                }
+            }
+        }
+        errorMessage?.let {
+            KidFriendlyCard(containerColor = Color(0xFFFFE0E0)) {
+                Text(
+                    text = it,
+                    color = Color(0xFF8A0000),
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
         KidFriendlyCard {
             Column(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -207,7 +268,7 @@ private fun MealCaptureScreen(
                     )
                 }
                 Text(
-                    text = "Fotografiere deine Mahlzeit und wir schätzen die Nährwerte!",
+                    text = "Halte deine nächste Mahlzeit fest",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color(0xFF2B2B2B),
@@ -226,46 +287,104 @@ private fun MealCaptureScreen(
                 }
             }
         }
-        errorMessage?.let {
-            KidFriendlyCard(containerColor = Color(0xFFFFE0E0)) {
-                Text(
-                    text = it,
-                    color = Color(0xFF8A0000),
-                    fontWeight = FontWeight.SemiBold
-                )
+        if (todayMeals.isEmpty()) {
+            KidFriendlyCard {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Noch keine Mahlzeiten heute",
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF2B2B2B)
+                    )
+                    Text(
+                        text = "Füge eine Mahlzeit hinzu, um deinen Fortschritt zu sehen.",
+                        color = Color.Gray,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
-        }
-        latestResult?.let { meal ->
-            MealResultCard(meal)
+        } else {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    "Heutige Mahlzeiten",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = Color(0xFF2B2B2B)
+                )
+                todayMeals.sortedByDescending { it.recordedAt }.forEach { meal ->
+                    MealHistoryCard(meal)
+                }
+            }
         }
         Spacer(Modifier.height(96.dp))
     }
 }
 
+private data class NutrientTotals(
+    val fatGrams: Double = 0.0,
+    val carbGrams: Double = 0.0,
+    val proteinGrams: Double = 0.0
+) {
+    operator fun plus(meal: MealEntry): NutrientTotals = NutrientTotals(
+        fatGrams = fatGrams + meal.fatGrams,
+        carbGrams = carbGrams + meal.carbGrams,
+        proteinGrams = proteinGrams + meal.proteinGrams
+    )
+}
+
+private data class NutrientGoal(
+    val label: String,
+    val consumed: Double,
+    val goal: Double,
+    val color: Color
+)
+
 @Composable
-private fun MealResultCard(meal: MealEntry) {
-    KidFriendlyCard {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text("Letzte Analyse", fontWeight = FontWeight.Bold, color = Color(0xFF2B2B2B))
-            Text(meal.description)
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                NutrientChip(label = "Fett", value = meal.fatGrams, color = Peach)
-                NutrientChip(label = "Kohlenhydrate", value = meal.carbGrams, color = Mint)
-                NutrientChip(label = "Protein", value = meal.proteinGrams, color = Lilac)
+private fun NutrientGoalRing(goal: NutrientGoal) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.width(108.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(100.dp)) {
+            Canvas(modifier = Modifier.size(100.dp)) {
+                val stroke = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Round)
+                drawArc(
+                    color = goal.color.copy(alpha = 0.2f),
+                    startAngle = -90f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    style = stroke
+                )
+                val progress = (goal.consumed / goal.goal).coerceIn(0.0, 1.0)
+                drawArc(
+                    color = goal.color,
+                    startAngle = -90f,
+                    sweepAngle = (360 * progress).toFloat(),
+                    useCenter = false,
+                    style = stroke
+                )
             }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50))
-                Text("Aufgenommen am ${meal.formattedTimestamp()}", color = Color.Gray, fontSize = 12.sp)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = String.format(Locale.getDefault(), "%.0f g", goal.consumed),
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF2B2B2B)
+                )
+                Text(goal.label, color = Color.Gray, fontSize = 12.sp)
             }
         }
+        Text(
+            text = "Ziel: ${String.format(Locale.getDefault(), "%.0f g", goal.goal)}",
+            color = Color(0xFF2B2B2B),
+            fontSize = 12.sp
+        )
     }
 }
 
@@ -293,8 +412,25 @@ private fun NutrientChip(label: String, value: Double, color: Color) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MealHistoryScreen(meals: List<MealEntry>, modifier: Modifier = Modifier) {
+    var showDatePicker by rememberSaveable { mutableStateOf(false) }
+    var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
+
+    val filteredMeals = remember(meals, selectedDate) {
+        val date = selectedDate
+        val zone = ZoneId.systemDefault()
+        val base = if (date == null) {
+            meals
+        } else {
+            meals.filter { entry ->
+                entry.recordedAt.atZone(zone).toLocalDate() == date
+            }
+        }
+        base.sortedByDescending { it.recordedAt }
+    }
+
     Column(
         modifier = modifier
             .padding(horizontal = 16.dp)
@@ -303,10 +439,35 @@ private fun MealHistoryScreen(meals: List<MealEntry>, modifier: Modifier = Modif
         Spacer(Modifier.height(12.dp))
         Text("Deine gespeicherten Mahlzeiten", fontWeight = FontWeight.Bold, fontSize = 20.sp)
         Spacer(modifier = Modifier.height(12.dp))
-        if (meals.isEmpty()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            AssistChip(
+                onClick = { showDatePicker = true },
+                label = {
+                    Text(
+                        selectedDate?.format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+                            ?: "Datum auswählen"
+                    )
+                },
+                leadingIcon = {
+                    Icon(Icons.Default.DateRange, contentDescription = null)
+                },
+                border = null
+            )
+            if (selectedDate != null) {
+                TextButton(onClick = { selectedDate = null }) {
+                    Text("Zurücksetzen")
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        if (filteredMeals.isEmpty()) {
             KidFriendlyCard {
                 Text(
-                    "Noch keine Mahlzeiten gespeichert. Starte mit einem Foto!",
+                    if (selectedDate == null) {
+                        "Noch keine Mahlzeiten gespeichert. Starte mit einem Foto!"
+                    } else {
+                        "Keine Mahlzeiten für dieses Datum gefunden."
+                    },
                     color = Color.Gray,
                     textAlign = TextAlign.Center
                 )
@@ -316,11 +477,38 @@ private fun MealHistoryScreen(meals: List<MealEntry>, modifier: Modifier = Modif
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                items(meals.reversed(), key = { it.id }) { meal ->
+                items(filteredMeals, key = { it.id }) { meal ->
                     MealHistoryCard(meal)
                 }
                 item { Spacer(Modifier.height(96.dp)) }
             }
+        }
+    }
+
+    if (showDatePicker) {
+        val initialMillis = selectedDate?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        selectedDate = datePickerState.selectedDateMillis?.let { millis ->
+                            Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()
+                        }
+                        showDatePicker = false
+                    }
+                ) {
+                    Text("Auswählen")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Abbrechen")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
         }
     }
 }
