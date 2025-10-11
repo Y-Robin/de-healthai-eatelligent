@@ -12,15 +12,21 @@ import de.healthai.eatelligent.data.MealRepository
 import de.healthai.eatelligent.data.MealRepositoryImpl
 import de.healthai.eatelligent.data.MealStorage
 import de.healthai.eatelligent.data.OpenAiMealAnalyzer
+import de.healthai.eatelligent.data.UserConfigurationStorage
 import java.io.ByteArrayOutputStream
 import java.time.Instant
+import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class MealViewModel(private val analyzer: OpenAiMealAnalyzer, private val repository: MealRepository) :
+class MealViewModel(
+    private val analyzer: OpenAiMealAnalyzer,
+    private val repository: MealRepository,
+    private val userConfigurationStorage: UserConfigurationStorage
+) :
     ViewModel() {
 
     private val _meals = MutableStateFlow<List<MealEntry>>(emptyList())
@@ -38,16 +44,28 @@ class MealViewModel(private val analyzer: OpenAiMealAnalyzer, private val reposi
     private val _userConfiguration = MutableStateFlow<UserConfiguration?>(null)
     val userConfiguration: StateFlow<UserConfiguration?> = _userConfiguration.asStateFlow()
 
+    private var lastSavedFingerprint: Pair<String, Long>? = null
+
     init {
         viewModelScope.launch {
             runCatching { repository.readMeals() }
                 .onSuccess { _meals.value = it }
                 .onFailure { _error.value = it.message }
         }
+        viewModelScope.launch {
+            runCatching { userConfigurationStorage.read() }
+                .onSuccess { stored -> _userConfiguration.value = stored }
+        }
     }
 
     fun saveUserConfiguration(configuration: UserConfiguration) {
         _userConfiguration.value = configuration
+        viewModelScope.launch {
+            runCatching { userConfigurationStorage.write(configuration) }
+                .onFailure { throwable ->
+                    _error.value = throwable.message
+                }
+        }
     }
 
     fun analyzeMeal(bitmap: Bitmap) {
@@ -68,6 +86,22 @@ class MealViewModel(private val analyzer: OpenAiMealAnalyzer, private val reposi
         }
     }
 
+    fun addManualMeal(description: String) {
+        val trimmed = description.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            val manualEntry = MealEntry(
+                id = UUID.randomUUID().toString(),
+                recordedAt = Instant.now(),
+                description = trimmed,
+                fatGrams = 0.0,
+                carbGrams = 0.0,
+                proteinGrams = 0.0
+            )
+            persistMealEntry(manualEntry)
+        }
+    }
+
     private fun encodeBitmap(bitmap: Bitmap): String {
         val buffer = ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.JPEG, 90, buffer)
@@ -84,26 +118,51 @@ class MealViewModel(private val analyzer: OpenAiMealAnalyzer, private val reposi
             carbGrams = analysis.carbGrams,
             proteinGrams = analysis.proteinGrams
         )
+        persistMealEntry(newEntry)
+    }
+
+    private suspend fun persistMealEntry(newEntry: MealEntry) {
+        val fingerprint = mealFingerprint(newEntry)
+        val now = System.currentTimeMillis()
+        val lastSaved = lastSavedFingerprint
+        if (lastSaved != null && lastSaved.first == fingerprint && now - lastSaved.second < DUPLICATE_WINDOW_MS) {
+            _latestResult.value = newEntry
+            return
+        }
         val updatedMeals = _meals.value + newEntry
         val writeResult = runCatching { repository.writeMeals(updatedMeals) }
         writeResult.onSuccess {
             _meals.value = updatedMeals
             _latestResult.value = newEntry
+            lastSavedFingerprint = fingerprint to now
         }
         writeResult.onFailure { throwable ->
             _error.value = throwable.message
         }
     }
 
+    private fun mealFingerprint(entry: MealEntry): String = buildString {
+        append(entry.description.trim())
+        append('|')
+        append(String.format(Locale.US, "%.2f", entry.fatGrams))
+        append('|')
+        append(String.format(Locale.US, "%.2f", entry.carbGrams))
+        append('|')
+        append(String.format(Locale.US, "%.2f", entry.proteinGrams))
+    }
+
     companion object {
+        private const val DUPLICATE_WINDOW_MS = 5_000L
+
         fun provideFactory(context: android.content.Context): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
                     val storage = MealStorage(context.applicationContext)
                     val repository = MealRepositoryImpl(storage)
                     val analyzer = OpenAiMealAnalyzer(BuildConfig.OPENAI_API_KEY)
+                    val configurationStorage = UserConfigurationStorage(context.applicationContext)
                     @Suppress("UNCHECKED_CAST")
-                    return MealViewModel(analyzer, repository) as T
+                    return MealViewModel(analyzer, repository, configurationStorage) as T
                 }
             }
     }
