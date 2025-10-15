@@ -26,6 +26,9 @@ data class MealEntry(
     val proteinGrams: Double,
     val imageBase64: String? = null
 ) {
+    val calories: Double
+        get() = (fatGrams * 9) + (carbGrams * 4) + (proteinGrams * 4)
+
     fun formattedTimestamp(): String = recordedAt.atZone(ZoneId.systemDefault())
         .format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
 

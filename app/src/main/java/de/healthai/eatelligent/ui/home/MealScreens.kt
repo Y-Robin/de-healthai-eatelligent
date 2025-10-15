@@ -440,81 +440,75 @@ private fun ChatCenterDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0x66000000))
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color.Transparent
         ) {
-            Surface(
+            Box(
                 modifier = Modifier
-                    .align(Alignment.Center)
-                    .fillMaxWidth(0.92f)
-                    .fillMaxHeight(0.88f),
-                shape = RoundedCornerShape(36.dp),
-                tonalElevation = 10.dp,
-                color = Color.White.copy(alpha = 0.97f)
+                    .fillMaxSize()
+                    .background(ChatCenterGradient)
+                    .padding(horizontal = 12.dp, vertical = 20.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(ChatCenterGradient)
-                        .padding(16.dp)
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    shape = RoundedCornerShape(28.dp),
+                    color = Color.White.copy(alpha = 0.94f)
                 ) {
-                    Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        shape = RoundedCornerShape(28.dp),
-                        color = Color.White.copy(alpha = 0.92f)
-                    ) {
-                        if (isFocusMode && selectedConversation != null) {
-                            FocusedConversation(
-                                conversation = selectedConversation,
-                                onSendMessage = { text -> onSendMessage(selectedConversation.id, text) },
-                                onBackToOverview = { isFocusMode = false }
-                            )
-                        } else {
-                            ChatOverview(
-                                conversations = conversations,
-                                activeConversationId = activeConversationId,
-                                onSelectConversation = {
-                                    onSelectConversation(it)
-                                    isFocusMode = true
-                                },
-                                onSendMessage = onSendMessage,
-                                selectedConversation = selectedConversation
-                            )
-                        }
+                    if (isFocusMode && selectedConversation != null) {
+                        FocusedConversation(
+                            conversation = selectedConversation,
+                            onSendMessage = { text -> onSendMessage(selectedConversation.id, text) },
+                            onBackToOverview = { isFocusMode = false }
+                        )
+                    } else {
+                        ChatOverview(
+                            conversations = conversations,
+                            activeConversationId = activeConversationId,
+                            onSelectConversation = {
+                                onSelectConversation(it)
+                                isFocusMode = true
+                            },
+                            onSendMessage = onSendMessage,
+                            selectedConversation = selectedConversation
+                        )
                     }
                 }
+                OverlayCircleButton(
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Zurück",
+                    onClick = {
+                        if (isFocusMode) {
+                            isFocusMode = false
+                        } else {
+                            onDismiss()
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 8.dp, top = 8.dp),
+                    containerColor = Color.White.copy(alpha = 0.96f),
+                    contentColor = Color(0xFF211946),
+                    shadowElevation = 8.dp
+                )
+                if (!isFocusMode) {
+                    OverlayCircleButton(
+                        icon = Icons.Default.Add,
+                        contentDescription = "Neuen Chat beginnen",
+                        onClick = {
+                            onNewChat()
+                            isFocusMode = true
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 8.dp, bottom = 12.dp),
+                        containerColor = Color(0xFF7048E8),
+                        contentColor = Color.White,
+                        size = 52.dp,
+                        shadowElevation = 10.dp
+                    )
+                }
             }
-            OverlayCircleButton(
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "Zurück",
-                onClick = {
-                    isFocusMode = false
-                    onDismiss()
-                },
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 24.dp, top = 24.dp),
-                containerColor = Color.White.copy(alpha = 0.96f),
-                contentColor = Color(0xFF211946),
-                shadowElevation = 8.dp
-            )
-            OverlayCircleButton(
-                icon = Icons.Default.Add,
-                contentDescription = "Neuen Chat beginnen",
-                onClick = {
-                    onNewChat()
-                    isFocusMode = true
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(start = 24.dp, bottom = 28.dp),
-                containerColor = Color(0xFF7048E8),
-                contentColor = Color.White,
-                size = 52.dp,
-                shadowElevation = 10.dp
-            )
         }
     }
 }
@@ -1070,6 +1064,7 @@ private fun MealCaptureScreen(
         NutrientGoal(label = "Protein", consumed = totals.proteinGrams, goal = 55.0, color = Lilac),
         NutrientGoal(label = "Fett", consumed = totals.fatGrams, goal = 70.0, color = Peach)
     )
+    val calorieGoal = 2000.0
 
     Column(
         modifier = modifier
@@ -1080,21 +1075,31 @@ private fun MealCaptureScreen(
     ) {
         Spacer(Modifier.height(12.dp))
         KidFriendlyCard {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(
-                    text = "Deine Tagesziele",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF2B2B2B)
-                )
-                Text(
-                    text = "So viel hast du heute schon geschafft!",
-                    color = Color.Gray
-                )
-                Text(
-                    text = "Richtwerte für eine erwachsene Frau (~2000 kcal)",
-                    color = Color(0xFF6B6B7A),
-                    fontSize = 12.sp
+            Column(
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Deine Tagesziele",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF2B2B2B)
+                    )
+                    Text(
+                        text = "So viel hast du heute schon geschafft!",
+                        color = Color.Gray
+                    )
+                    Text(
+                        text = "Richtwerte für eine erwachsene Frau (~2000 kcal)",
+                        color = Color(0xFF6B6B7A),
+                        fontSize = 12.sp
+                    )
+                }
+                CalorieProgressRing(
+                    consumed = totals.calories,
+                    goal = calorieGoal,
+                    modifier = Modifier.padding(top = 4.dp)
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1102,7 +1107,7 @@ private fun MealCaptureScreen(
                     maxItemsInEachRow = 3
                 ) {
                     nutrientGoals.forEach { goal ->
-                        NutrientGoalRing(goal)
+                        NutrientGoalRing(goal, compact = true)
                     }
                 }
             }
@@ -1354,6 +1359,9 @@ private data class NutrientTotals(
     val carbGrams: Double = 0.0,
     val proteinGrams: Double = 0.0
 ) {
+    val calories: Double
+        get() = (fatGrams * 9) + (carbGrams * 4) + (proteinGrams * 4)
+
     operator fun plus(meal: MealEntry): NutrientTotals = NutrientTotals(
         fatGrams = fatGrams + meal.fatGrams,
         carbGrams = carbGrams + meal.carbGrams,
@@ -1369,15 +1377,20 @@ private data class NutrientGoal(
 )
 
 @Composable
-private fun NutrientGoalRing(goal: NutrientGoal) {
+private fun NutrientGoalRing(goal: NutrientGoal, compact: Boolean = false) {
+    val ringSize = if (compact) 84.dp else 104.dp
+    val strokeWidth = if (compact) 10.dp else 12.dp
+    val columnWidth = if (compact) 92.dp else 116.dp
+    val labelSize = if (compact) 11.sp else 12.sp
+    val valueSize = if (compact) 14.sp else 15.sp
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.width(108.dp)
+        modifier = Modifier.width(columnWidth)
     ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(100.dp)) {
-            Canvas(modifier = Modifier.size(100.dp)) {
-                val stroke = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Round)
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(ringSize)) {
+            Canvas(modifier = Modifier.size(ringSize)) {
+                val stroke = Stroke(width = strokeWidth.toPx(), cap = StrokeCap.Round)
                 drawArc(
                     color = goal.color.copy(alpha = 0.2f),
                     startAngle = -90f,
@@ -1398,16 +1411,115 @@ private fun NutrientGoalRing(goal: NutrientGoal) {
                 Text(
                     text = String.format(Locale.getDefault(), "%.0f g", goal.consumed),
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF2B2B2B)
+                    color = Color(0xFF2B2B2B),
+                    fontSize = valueSize
                 )
-                Text(goal.label, color = Color.Gray, fontSize = 12.sp)
+                Text(goal.label, color = Color.Gray, fontSize = labelSize)
             }
         }
         Text(
             text = "Ziel: ${String.format(Locale.getDefault(), "%.0f g", goal.goal)}",
             color = Color(0xFF2B2B2B),
+            fontSize = labelSize
+        )
+    }
+}
+
+@Composable
+private fun CalorieProgressRing(
+    consumed: Double,
+    goal: Double,
+    modifier: Modifier = Modifier,
+    color: Color = Color(0xFF7048E8)
+) {
+    val formattedConsumed = String.format(Locale.getDefault(), "%.0f kcal", consumed)
+    val formattedGoal = String.format(Locale.getDefault(), "%.0f kcal", goal)
+    val progress = if (goal > 0) (consumed / goal).coerceIn(0.0, 1.0) else 0.0
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(164.dp)) {
+            Canvas(modifier = Modifier.size(164.dp)) {
+                val stroke = Stroke(width = 16.dp.toPx(), cap = StrokeCap.Round)
+                drawArc(
+                    color = color.copy(alpha = 0.15f),
+                    startAngle = -90f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    style = stroke
+                )
+                drawArc(
+                    color = color,
+                    startAngle = -90f,
+                    sweepAngle = (360 * progress).toFloat(),
+                    useCenter = false,
+                    style = stroke
+                )
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = formattedConsumed,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF2B2B2B),
+                    fontSize = 18.sp
+                )
+                Text(
+                    text = "Kalorien heute",
+                    color = Color(0xFF6B6B7A),
+                    fontSize = 12.sp
+                )
+            }
+        }
+        Text(
+            text = "Ziel: $formattedGoal",
+            color = Color(0xFF2B2B2B),
             fontSize = 12.sp
         )
+    }
+}
+
+@Composable
+private fun MealCalorieBadge(
+    calories: Double,
+    modifier: Modifier = Modifier,
+    color: Color = Color(0xFF7048E8)
+) {
+    val formattedCalories = String.format(Locale.getDefault(), "%.0f", calories)
+    Box(
+        modifier = modifier.size(92.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val stroke = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Round)
+            drawArc(
+                color = color.copy(alpha = 0.18f),
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                style = stroke
+            )
+            drawArc(
+                color = color,
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                style = stroke
+            )
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "$formattedCalories",
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF2B2B2B)
+            )
+            Text(
+                text = "kcal",
+                color = Color(0xFF6B6B7A),
+                fontSize = 12.sp
+            )
+        }
     }
 }
 
@@ -1588,20 +1700,27 @@ private fun MealHistoryCard(
     KidFriendlyCard(modifier = cardModifier) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                MealThumbnail(
-                    imageBase64 = meal.imageBase64,
-                    description = meal.description
-                )
-                Column(
+                Row(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(meal.description, fontWeight = FontWeight.SemiBold)
-                    Text(meal.formattedTimestamp(), color = Color.Gray, fontSize = 11.sp)
+                    MealThumbnail(
+                        imageBase64 = meal.imageBase64,
+                        description = meal.description
+                    )
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(meal.description, fontWeight = FontWeight.SemiBold)
+                        Text(meal.formattedTimestamp(), color = Color.Gray, fontSize = 11.sp)
+                    }
                 }
+                MealCalorieBadge(calories = meal.calories)
             }
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

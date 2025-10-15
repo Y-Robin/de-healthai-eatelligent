@@ -8,6 +8,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 
 private const val CHAT_ENDPOINT = "https://api.openai.com/v1/chat/completions"
 
@@ -20,7 +21,12 @@ private const val SYSTEM_PROMPT = """
 """
 
 class OpenAiChatAssistant(private val apiKey: String) {
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
+        .callTimeout(120, TimeUnit.SECONDS)
+        .build()
 
     suspend fun generateReply(
         profileSummary: String,
