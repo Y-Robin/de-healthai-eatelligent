@@ -471,7 +471,8 @@ private fun ChatCenterDialog(
                                 isFocusMode = true
                             },
                             selectedConversation = selectedConversation,
-                            onDismiss = onDismiss
+                            onDismiss = onDismiss,
+                            onSendMessage = onSendMessage
                         )
                     }
                 }
@@ -503,7 +504,8 @@ private fun ChatOverview(
     activeConversationId: String?,
     onSelectConversation: (String) -> Unit,
     selectedConversation: ChatConversation?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onSendMessage: (String, String) -> Unit
 ) {
     Column(
         modifier = Modifier
