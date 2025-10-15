@@ -470,9 +470,7 @@ private fun ChatCenterDialog(
                                 onSelectConversation(it)
                                 isFocusMode = true
                             },
-                            selectedConversation = selectedConversation,
-                            onDismiss = onDismiss,
-                            onSendMessage = onSendMessage
+                            onDismiss = onDismiss
                         )
                     }
                 }
@@ -503,9 +501,7 @@ private fun ChatOverview(
     conversations: SnapshotStateList<ChatConversation>,
     activeConversationId: String?,
     onSelectConversation: (String) -> Unit,
-    selectedConversation: ChatConversation?,
-    onDismiss: () -> Unit,
-    onSendMessage: (String, String) -> Unit
+    onDismiss: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -555,45 +551,27 @@ private fun ChatOverview(
                 )
             }
 
-            if (selectedConversation != null) {
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                    shape = RoundedCornerShape(28.dp),
-                    tonalElevation = 4.dp,
-                    color = Color.White
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                shape = RoundedCornerShape(28.dp),
+                color = Color(0xFFEDE9FF)
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    ConversationDetail(
-                        conversation = selectedConversation,
-                        onSendMessage = { text -> onSendMessage(selectedConversation.id, text) },
-                        modifier = Modifier.fillMaxSize(),
-                        showInput = false
-                    )
-                }
-            } else {
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                    shape = RoundedCornerShape(28.dp),
-                    color = Color(0xFFEDE9FF)
-                ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(Icons.Default.Chat, contentDescription = null, tint = Color(0xFF7048E8))
-                            Text(
-                                "Starte einen neuen Chat, um loszulegen.",
-                                color = Color(0xFF6B6B7A),
-                                fontSize = 13.sp
-                            )
-                        }
+                        Icon(Icons.Default.Chat, contentDescription = null, tint = Color(0xFF7048E8))
+                        Text(
+                            "Wähle eine Unterhaltung aus, um den Chat zu öffnen.",
+                            color = Color(0xFF6B6B7A),
+                            fontSize = 13.sp
+                        )
                     }
                 }
             }
