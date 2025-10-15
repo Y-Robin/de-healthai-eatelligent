@@ -1,14 +1,17 @@
 package de.healthai.eatelligent.ui.home
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.util.Base64
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,7 +35,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.CameraAlt
@@ -42,12 +47,12 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.FloatingActionButton
@@ -81,17 +86,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.focus.FocusDirection
@@ -387,6 +397,34 @@ private fun ChatLauncherButton(onClick: () -> Unit, modifier: Modifier = Modifie
 }
 
 @Composable
+private fun OverlayCircleButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    containerColor: Color,
+    contentColor: Color,
+    size: Dp = 44.dp,
+    enabled: Boolean = true,
+    shadowElevation: Dp = 6.dp
+) {
+    val backgroundColor = if (enabled) containerColor else containerColor.copy(alpha = 0.6f)
+    val iconTint = if (enabled) contentColor else contentColor.copy(alpha = 0.6f)
+    val clickableModifier = modifier
+        .size(size)
+        .shadow(shadowElevation, CircleShape, clip = false)
+        .clip(CircleShape)
+        .background(backgroundColor)
+        .let { base -> if (enabled) base.clickable(onClick = onClick) else base }
+    Box(
+        modifier = clickableModifier,
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription, tint = iconTint)
+    }
+}
+
+@Composable
 private fun ChatCenterDialog(
     conversations: SnapshotStateList<ChatConversation>,
     activeConversationId: String?,
@@ -410,8 +448,8 @@ private fun ChatCenterDialog(
             Surface(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .fillMaxWidth(0.95f)
-                    .fillMaxHeight(0.9f),
+                    .fillMaxWidth(0.92f)
+                    .fillMaxHeight(0.88f),
                 shape = RoundedCornerShape(36.dp),
                 tonalElevation = 10.dp,
                 color = Color.White.copy(alpha = 0.97f)
@@ -431,22 +469,12 @@ private fun ChatCenterDialog(
                             FocusedConversation(
                                 conversation = selectedConversation,
                                 onSendMessage = { text -> onSendMessage(selectedConversation.id, text) },
-                                onBackToOverview = { isFocusMode = false },
-                                onNewChat = {
-                                    onNewChat()
-                                    isFocusMode = true
-                                },
-                                onDismiss = onDismiss
+                                onBackToOverview = { isFocusMode = false }
                             )
                         } else {
                             ChatOverview(
                                 conversations = conversations,
                                 activeConversationId = activeConversationId,
-                                onDismiss = onDismiss,
-                                onNewChat = {
-                                    onNewChat()
-                                    isFocusMode = true
-                                },
                                 onSelectConversation = {
                                     onSelectConversation(it)
                                     isFocusMode = true
@@ -458,6 +486,35 @@ private fun ChatCenterDialog(
                     }
                 }
             }
+            OverlayCircleButton(
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "Zurück",
+                onClick = {
+                    isFocusMode = false
+                    onDismiss()
+                },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 24.dp, top = 24.dp),
+                containerColor = Color.White.copy(alpha = 0.96f),
+                contentColor = Color(0xFF211946),
+                shadowElevation = 8.dp
+            )
+            OverlayCircleButton(
+                icon = Icons.Default.Add,
+                contentDescription = "Neuen Chat beginnen",
+                onClick = {
+                    onNewChat()
+                    isFocusMode = true
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 24.dp, bottom = 28.dp),
+                containerColor = Color(0xFF7048E8),
+                contentColor = Color.White,
+                size = 52.dp,
+                shadowElevation = 10.dp
+            )
         }
     }
 }
@@ -466,8 +523,6 @@ private fun ChatCenterDialog(
 private fun ChatOverview(
     conversations: SnapshotStateList<ChatConversation>,
     activeConversationId: String?,
-    onDismiss: () -> Unit,
-    onNewChat: () -> Unit,
     onSelectConversation: (String) -> Unit,
     onSendMessage: (String, String) -> Unit,
     selectedConversation: ChatConversation?
@@ -476,55 +531,37 @@ private fun ChatOverview(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 32.dp, vertical = 20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = "Begleit-Chat",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
                     color = Color(0xFF211946)
                 )
                 Text(
                     text = "Sieh dir vergangene Unterhaltungen an oder beginne eine neue Frage.",
                     color = Color(0xFF6B6B7A),
-                    fontSize = 13.sp
+                    fontSize = 12.sp
                 )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Button(
-                    onClick = onNewChat,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF7048E8),
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(20.dp)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Neuer Chat")
-                }
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Schließen")
-                }
             }
         }
 
-        Divider(color = Color(0xFFE4DAFF))
+        Divider(color = Color(0xFFE6DEF9))
 
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 28.dp, vertical = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(28.dp)
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             Surface(
                 modifier = Modifier
-                    .widthIn(min = 300.dp, max = 340.dp)
+                    .widthIn(min = 240.dp, max = 280.dp)
                     .fillMaxHeight(),
-                shape = RoundedCornerShape(28.dp),
+                shape = RoundedCornerShape(26.dp),
                 tonalElevation = 2.dp,
                 color = Color.White.copy(alpha = 0.95f)
             ) {
@@ -541,7 +578,7 @@ private fun ChatOverview(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight(),
-                    shape = RoundedCornerShape(32.dp),
+                    shape = RoundedCornerShape(30.dp),
                     tonalElevation = 4.dp,
                     color = Color.White
                 ) {
@@ -556,19 +593,22 @@ private fun ChatOverview(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight(),
-                    shape = RoundedCornerShape(32.dp),
+                    shape = RoundedCornerShape(30.dp),
                     color = Color(0xFFEDE9FF)
                 ) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
                             Icon(Icons.Default.Chat, contentDescription = null, tint = Color(0xFF7048E8))
                             Text(
                                 "Starte einen neuen Chat, um loszulegen.",
                                 color = Color(0xFF6B6B7A),
-                                fontSize = 14.sp
+                                fontSize = 13.sp
                             )
                         }
                     }
@@ -582,50 +622,35 @@ private fun ChatOverview(
 private fun FocusedConversation(
     conversation: ChatConversation,
     onSendMessage: (String) -> Unit,
-    onBackToOverview: () -> Unit,
-    onNewChat: () -> Unit,
-    onDismiss: () -> Unit
+    onBackToOverview: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 20.dp),
+                .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBackToOverview) {
-                    Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Übersicht anzeigen")
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text(
-                        text = conversation.title,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 22.sp,
-                        color = Color(0xFF211946)
-                    )
-                    val lastUserMessage = conversation.messages.lastOrNull { it.sender == ChatSender.User }
-                    lastUserMessage?.let {
-                        Text(
-                            text = "Letzte Frage: ${it.content}",
-                            fontSize = 13.sp,
-                            color = Color(0xFF6B6B7A),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
+            IconButton(onClick = onBackToOverview) {
+                Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Übersicht anzeigen")
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onNewChat) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Neuer Chat")
-                }
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Schließen")
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = conversation.title,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 18.sp,
+                    color = Color(0xFF211946)
+                )
+                val lastUserMessage = conversation.messages.lastOrNull { it.sender == ChatSender.User }
+                lastUserMessage?.let {
+                    Text(
+                        text = "Letzte Frage: ${it.content}",
+                        fontSize = 12.sp,
+                        color = Color(0xFF6B6B7A),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
@@ -634,8 +659,8 @@ private fun FocusedConversation(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 12.dp),
-            shape = RoundedCornerShape(36.dp),
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            shape = RoundedCornerShape(32.dp),
             tonalElevation = 4.dp,
             color = Color.White
         ) {
@@ -681,11 +706,12 @@ private fun ConversationList(
                             shape = RoundedCornerShape(16.dp)
                         )
                         .clickable { onSelectConversation(conversation.id) }
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
                     Text(
                         text = conversation.title,
                         fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp,
                         color = Color(0xFF2B2B2B)
                     )
                     val lastMessage = conversation.messages.lastOrNull()?.content ?: "Noch keine Nachrichten"
@@ -693,8 +719,8 @@ private fun ConversationList(
                         text = lastMessage,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        color = Color.Gray,
-                        fontSize = 12.sp
+                        color = Color(0xFF7B7B88),
+                        fontSize = 11.sp
                     )
                 }
             }
@@ -732,9 +758,9 @@ private fun ConversationDetail(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 state = listState,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(conversation.messages, key = { it.id }) { message ->
                     ChatBubble(message = message)
@@ -749,13 +775,19 @@ private fun ConversationDetail(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Nachricht oder Frage eingeben…") },
+                placeholder = {
+                    Text(
+                        "Nachricht oder Frage eingeben…",
+                        fontSize = 13.sp
+                    )
+                },
+                textStyle = TextStyle(fontSize = 14.sp),
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.Sentences,
                     imeAction = ImeAction.Send
@@ -770,7 +802,9 @@ private fun ConversationDetail(
                 minLines = 1,
                 maxLines = 4
             )
-            Button(
+            OverlayCircleButton(
+                icon = Icons.AutoMirrored.Filled.Send,
+                contentDescription = "Senden",
                 onClick = {
                     if (input.isNotBlank()) {
                         onSendMessage(input)
@@ -778,10 +812,12 @@ private fun ConversationDetail(
                         focusManager.clearFocus()
                     }
                 },
-                enabled = input.isNotBlank()
-            ) {
-                Text("Senden")
-            }
+                containerColor = Color(0xFF7048E8),
+                contentColor = Color.White,
+                size = 44.dp,
+                enabled = input.isNotBlank(),
+                shadowElevation = 6.dp
+            )
         }
     }
 }
@@ -799,7 +835,7 @@ private fun DefaultConversationHeader(conversation: ChatConversation) {
             Text(
                 text = conversation.title,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp,
+                fontSize = 15.sp,
                 color = Color(0xFF2B2B2B)
             )
             val lastUserMessage = conversation.messages.lastOrNull { it.sender == ChatSender.User }
@@ -807,7 +843,7 @@ private fun DefaultConversationHeader(conversation: ChatConversation) {
                 Text(
                     text = "Letzte Frage: ${it.content}",
                     color = Color.Gray,
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -838,13 +874,13 @@ private fun ChatBubble(message: ChatMessage) {
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
     ) {
         Surface(
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(18.dp),
             color = backgroundColor
         ) {
             Column(
                 modifier = Modifier
-                    .widthIn(max = 360.dp)
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .widthIn(max = 320.dp)
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
                 val header = when (message.contextType) {
                     ChatContextType.History -> "Übermittelte Infos"
@@ -857,7 +893,7 @@ private fun ChatBubble(message: ChatMessage) {
                         text = header,
                         fontWeight = FontWeight.SemiBold,
                         color = Color(0xFF2B2B2B),
-                        fontSize = 13.sp
+                        fontSize = 12.sp
                     )
                     Spacer(Modifier.height(4.dp))
                 }
@@ -867,22 +903,22 @@ private fun ChatBubble(message: ChatMessage) {
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(16.dp),
                             strokeWidth = 2.dp
                         )
                         Text(
                             text = message.content,
                             color = contentColor,
-                            fontSize = 13.sp,
-                            lineHeight = 18.sp
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp
                         )
                     }
                 } else {
                     Text(
                         text = message.content,
                         color = contentColor,
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
                     )
                 }
             }
@@ -1030,8 +1066,8 @@ private fun MealCaptureScreen(
     }
 
     val nutrientGoals = listOf(
-        NutrientGoal(label = "Kohlenhydrate", consumed = totals.carbGrams, goal = 200.0, color = Mint),
-        NutrientGoal(label = "Protein", consumed = totals.proteinGrams, goal = 60.0, color = Lilac),
+        NutrientGoal(label = "Kohlenhydrate", consumed = totals.carbGrams, goal = 250.0, color = Mint),
+        NutrientGoal(label = "Protein", consumed = totals.proteinGrams, goal = 55.0, color = Lilac),
         NutrientGoal(label = "Fett", consumed = totals.fatGrams, goal = 70.0, color = Peach)
     )
 
@@ -1054,6 +1090,11 @@ private fun MealCaptureScreen(
                 Text(
                     text = "So viel hast du heute schon geschafft!",
                     color = Color.Gray
+                )
+                Text(
+                    text = "Richtwerte für eine erwachsene Frau (~2000 kcal)",
+                    color = Color(0xFF6B6B7A),
+                    fontSize = 12.sp
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1546,7 +1587,22 @@ private fun MealHistoryCard(
 
     KidFriendlyCard(modifier = cardModifier) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(meal.description, fontWeight = FontWeight.SemiBold)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                MealThumbnail(
+                    imageBase64 = meal.imageBase64,
+                    description = meal.description
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(meal.description, fontWeight = FontWeight.SemiBold)
+                    Text(meal.formattedTimestamp(), color = Color.Gray, fontSize = 11.sp)
+                }
+            }
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1555,7 +1611,6 @@ private fun MealHistoryCard(
                 NutrientChip(label = "Kohlenhydrate", value = meal.carbGrams, color = Mint)
                 NutrientChip(label = "Protein", value = meal.proteinGrams, color = Lilac)
             }
-            Text(meal.formattedTimestamp(), color = Color.Gray, fontSize = 12.sp)
             if (onEditClick != null || onDeleteClick != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1684,6 +1739,47 @@ private fun EditMealDialog(
             }
         }
     )
+}
+
+@Composable
+private fun MealThumbnail(
+    imageBase64: String?,
+    description: String,
+    modifier: Modifier = Modifier
+) {
+    val imageBitmap = remember(imageBase64) {
+        imageBase64?.let { encoded ->
+            runCatching {
+                val bytes = Base64.decode(encoded, Base64.DEFAULT)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+            }.getOrNull()
+        }
+    }
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier = modifier
+            .size(56.dp)
+            .shadow(4.dp, shape, clip = false)
+            .clip(shape)
+            .background(Color(0xFFF3F0FF))
+            .border(1.dp, Color(0xFFE0D9FF), shape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (imageBitmap != null) {
+            Image(
+                bitmap = imageBitmap,
+                contentDescription = description,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.Image,
+                contentDescription = null,
+                tint = Color(0xFF7A6BC9)
+            )
+        }
+    }
 }
 
 @Composable

@@ -29,7 +29,9 @@ class MealStorage(context: Context) {
                         description = item.optString("description"),
                         fatGrams = item.optDouble("fatGrams", 0.0),
                         carbGrams = item.optDouble("carbGrams", 0.0),
-                        proteinGrams = item.optDouble("proteinGrams", 0.0)
+                        proteinGrams = item.optDouble("proteinGrams", 0.0),
+                        imageBase64 = item.optString("imageBase64", null)
+                            ?.takeIf { it.isNotBlank() }
                     )
                 )
             }
@@ -48,6 +50,9 @@ class MealStorage(context: Context) {
                         put("fatGrams", meal.fatGrams)
                         put("carbGrams", meal.carbGrams)
                         put("proteinGrams", meal.proteinGrams)
+                        meal.imageBase64?.let { encoded ->
+                            put("imageBase64", encoded)
+                        }
                     }
                 )
             }
