@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -531,50 +532,20 @@ private fun ChatOverview(
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.spacedBy(20.dp)
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            shape = RoundedCornerShape(22.dp),
+            tonalElevation = 2.dp,
+            color = Color.White.copy(alpha = 0.95f)
         ) {
-            Surface(
-                modifier = Modifier
-                    .widthIn(min = 240.dp, max = 280.dp)
-                    .fillMaxHeight(),
-                shape = RoundedCornerShape(22.dp),
-                tonalElevation = 2.dp,
-                color = Color.White.copy(alpha = 0.95f)
-            ) {
-                ConversationList(
-                    conversations = conversations,
-                    activeConversationId = activeConversationId,
-                    onSelectConversation = onSelectConversation,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-
-            Surface(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-                shape = RoundedCornerShape(28.dp),
-                color = Color(0xFFEDE9FF)
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(Icons.Default.Chat, contentDescription = null, tint = Color(0xFF7048E8))
-                        Text(
-                            "Wähle eine Unterhaltung aus, um den Chat zu öffnen.",
-                            color = Color(0xFF6B6B7A),
-                            fontSize = 13.sp
-                        )
-                    }
-                }
-            }
+            ConversationList(
+                conversations = conversations,
+                activeConversationId = activeConversationId,
+                onSelectConversation = onSelectConversation,
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }
