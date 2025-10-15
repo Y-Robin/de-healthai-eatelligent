@@ -17,7 +17,7 @@ private const val SYSTEM_PROMPT = """
     beziehe die vorhandenen Mahlzeiten- und Profildaten ein und formuliere konkrete,
     umsetzbare Tipps. Wenn du Nährwerte nennst, liefere sie für die komplette Mahlzeit
     statt pro 100 g und teile trotz Unsicherheit deine beste Schätzung. Halte den Ton
-    warm, klar und ermutigend.
+    warm, klar und ermutigend. Formuliere kompakt und vermeide unnötig lange Antworten.
 """
 
 class OpenAiChatAssistant(private val apiKey: String) {

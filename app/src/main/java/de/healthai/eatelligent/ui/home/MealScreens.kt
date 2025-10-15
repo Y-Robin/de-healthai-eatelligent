@@ -365,7 +365,7 @@ fun MealHomeScreen(
             onClick = { openChatCenter() },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 96.dp)
+                .padding(end = 16.dp, bottom = 124.dp)
         )
     }
 
@@ -459,7 +459,8 @@ private fun ChatCenterDialog(
                         FocusedConversation(
                             conversation = selectedConversation,
                             onSendMessage = { text -> onSendMessage(selectedConversation.id, text) },
-                            onBackToOverview = { isFocusMode = false }
+                            onBackToOverview = { isFocusMode = false },
+                            onClose = onDismiss
                         )
                     } else {
                         ChatOverview(
@@ -469,28 +470,11 @@ private fun ChatCenterDialog(
                                 onSelectConversation(it)
                                 isFocusMode = true
                             },
-                            onSendMessage = onSendMessage,
-                            selectedConversation = selectedConversation
+                            selectedConversation = selectedConversation,
+                            onDismiss = onDismiss
                         )
                     }
                 }
-                OverlayCircleButton(
-                    icon = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Zurück",
-                    onClick = {
-                        if (isFocusMode) {
-                            isFocusMode = false
-                        } else {
-                            onDismiss()
-                        }
-                    },
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(start = 8.dp, top = 8.dp),
-                    containerColor = Color.White.copy(alpha = 0.96f),
-                    contentColor = Color(0xFF211946),
-                    shadowElevation = 8.dp
-                )
                 if (!isFocusMode) {
                     OverlayCircleButton(
                         icon = Icons.Default.Add,
@@ -501,7 +485,7 @@ private fun ChatCenterDialog(
                         },
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .padding(end = 8.dp, bottom = 12.dp),
+                            .padding(end = 16.dp, bottom = 24.dp),
                         containerColor = Color(0xFF7048E8),
                         contentColor = Color.White,
                         size = 52.dp,
@@ -518,17 +502,23 @@ private fun ChatOverview(
     conversations: SnapshotStateList<ChatConversation>,
     activeConversationId: String?,
     onSelectConversation: (String) -> Unit,
-    onSendMessage: (String, String) -> Unit,
-    selectedConversation: ChatConversation?
+    selectedConversation: ChatConversation?,
+    onDismiss: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 16.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+            }
+            Column(modifier = Modifier.padding(start = 6.dp)) {
                 Text(
                     text = "Begleit-Chat",
                     fontSize = 18.sp,
@@ -536,26 +526,22 @@ private fun ChatOverview(
                     color = Color(0xFF211946)
                 )
                 Text(
-                    text = "Sieh dir vergangene Unterhaltungen an oder beginne eine neue Frage.",
+                    text = "Wähle eine Unterhaltung oder starte eine neue Frage.",
                     color = Color(0xFF6B6B7A),
                     fontSize = 12.sp
                 )
             }
         }
 
-        Divider(color = Color(0xFFE6DEF9))
-
         Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(24.dp)
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             Surface(
                 modifier = Modifier
                     .widthIn(min = 240.dp, max = 280.dp)
                     .fillMaxHeight(),
-                shape = RoundedCornerShape(26.dp),
+                shape = RoundedCornerShape(22.dp),
                 tonalElevation = 2.dp,
                 color = Color.White.copy(alpha = 0.95f)
             ) {
@@ -572,7 +558,7 @@ private fun ChatOverview(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight(),
-                    shape = RoundedCornerShape(30.dp),
+                    shape = RoundedCornerShape(28.dp),
                     tonalElevation = 4.dp,
                     color = Color.White
                 ) {
@@ -587,7 +573,7 @@ private fun ChatOverview(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight(),
-                    shape = RoundedCornerShape(30.dp),
+                    shape = RoundedCornerShape(28.dp),
                     color = Color(0xFFEDE9FF)
                 ) {
                     Box(
@@ -616,20 +602,25 @@ private fun ChatOverview(
 private fun FocusedConversation(
     conversation: ChatConversation,
     onSendMessage: (String) -> Unit,
-    onBackToOverview: () -> Unit
+    onBackToOverview: () -> Unit,
+    onClose: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBackToOverview) {
-                Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Übersicht anzeigen")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück zur Übersicht")
             }
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
                 Text(
                     text = conversation.title,
                     fontWeight = FontWeight.SemiBold,
@@ -646,6 +637,9 @@ private fun FocusedConversation(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+            }
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, contentDescription = "Chat schließen")
             }
         }
 
@@ -1089,11 +1083,6 @@ private fun MealCaptureScreen(
                     Text(
                         text = "So viel hast du heute schon geschafft!",
                         color = Color.Gray
-                    )
-                    Text(
-                        text = "Richtwerte für eine erwachsene Frau (~2000 kcal)",
-                        color = Color(0xFF6B6B7A),
-                        fontSize = 12.sp
                     )
                 }
                 CalorieProgressRing(
