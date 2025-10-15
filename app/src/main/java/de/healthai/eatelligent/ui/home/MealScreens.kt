@@ -1,20 +1,22 @@
 package de.healthai.eatelligent.ui.home
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.util.Base64
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -33,7 +35,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.CameraAlt
@@ -43,12 +47,13 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Card
@@ -75,22 +80,28 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.focus.FocusDirection
@@ -99,9 +110,13 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import de.healthai.eatelligent.BuildConfig
 import de.healthai.eatelligent.Gender
 import de.healthai.eatelligent.UserConfiguration
 import de.healthai.eatelligent.data.MealEntry
+import de.healthai.eatelligent.data.ChatHistoryEntry
+import de.healthai.eatelligent.data.ChatHistoryRole
+import de.healthai.eatelligent.data.OpenAiChatAssistant
 import java.time.Instant
 import java.time.LocalDate
 import java.time.Period
@@ -110,8 +125,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
 import androidx.compose.runtime.snapshots.SnapshotStateList
-import kotlin.math.abs
-import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 private enum class MealHomeTab { Capture, History, Settings }
 
@@ -133,8 +147,12 @@ private val ChatCenterGradient = Brush.linearGradient(
     )
 )
 
-private const val CHAT_SYSTEM_PROMPT =
-    "Beantworte ausschließlich die gestellte Frage in höchstens drei klaren Sätzen."
+private const val CHAT_SYSTEM_PROMPT = """
+    Du bist ein empathischer Ernährungscoach. Antworte auf Deutsch, liefere klare
+    und hilfreiche Antworten und gehe – wo passend – auf konkrete Mahlzeiten ein.
+    Nenne Makronährstoffe immer für die gesamte Mahlzeit und gib deine beste
+    Einschätzung, selbst wenn Unsicherheiten bestehen.
+"""
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -157,6 +175,8 @@ fun MealHomeScreen(
     val profileSummary = remember(userConfiguration, meals) {
         buildProfileSummary(userConfiguration, meals)
     }
+    val coroutineScope = rememberCoroutineScope()
+    val chatAssistant = remember { OpenAiChatAssistant(BuildConfig.OPENAI_API_KEY) }
 
     LaunchedEffect(conversations.size) {
         if (conversations.isNotEmpty() && activeConversationId == null) {
@@ -211,15 +231,51 @@ fun MealHomeScreen(
             content = contextPayload,
             contextType = ChatContextType.History
         )
-        val assistantReply = generateAssistantReply(
-            userMessage = trimmed,
-            meals = meals
-        )
+        val loadingId = UUID.randomUUID().toString()
         conversation.messages += ChatMessage(
-            id = UUID.randomUUID().toString(),
+            id = loadingId,
             sender = ChatSender.Assistant,
-            content = assistantReply
+            content = "Ich denke kurz nach …",
+            contextType = ChatContextType.Loading
         )
+        val historyEntries = plainMessages.map { it.toHistoryEntry() }
+        val carryOverSummary = conversation.messages
+            .firstOrNull { it.contextType == ChatContextType.CarryOver }
+            ?.content
+        coroutineScope.launch {
+            val reply = runCatching {
+                chatAssistant.generateReply(
+                    profileSummary = profileSummary,
+                    history = historyEntries,
+                    carryOverSummary = carryOverSummary
+                )
+            }
+            val replacement = reply.fold(
+                onSuccess = { text ->
+                    ChatMessage(
+                        id = loadingId,
+                        sender = ChatSender.Assistant,
+                        content = text.trim()
+                    )
+                },
+                onFailure = { error ->
+                    val reason = error.localizedMessage?.takeIf { it.isNotBlank() }
+                        ?: "Bitte versuche es später erneut."
+                    ChatMessage(
+                        id = loadingId,
+                        sender = ChatSender.Assistant,
+                        content = "Leider gab es ein Problem beim Abrufen der Antwort.\n$reason",
+                        contextType = ChatContextType.Error
+                    )
+                }
+            )
+            val index = conversation.messages.indexOfFirst { it.id == loadingId }
+            if (index >= 0) {
+                conversation.messages[index] = replacement
+            } else {
+                conversation.messages += replacement
+            }
+        }
     }
 
     fun openChatCenter() {
@@ -309,7 +365,7 @@ fun MealHomeScreen(
             onClick = { openChatCenter() },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 96.dp)
+                .padding(end = 16.dp, bottom = 124.dp)
         )
     }
 
@@ -341,6 +397,34 @@ private fun ChatLauncherButton(onClick: () -> Unit, modifier: Modifier = Modifie
 }
 
 @Composable
+private fun OverlayCircleButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    containerColor: Color,
+    contentColor: Color,
+    size: Dp = 44.dp,
+    enabled: Boolean = true,
+    shadowElevation: Dp = 6.dp
+) {
+    val backgroundColor = if (enabled) containerColor else containerColor.copy(alpha = 0.6f)
+    val iconTint = if (enabled) contentColor else contentColor.copy(alpha = 0.6f)
+    val clickableModifier = modifier
+        .size(size)
+        .shadow(shadowElevation, CircleShape, clip = false)
+        .clip(CircleShape)
+        .background(backgroundColor)
+        .let { base -> if (enabled) base.clickable(onClick = onClick) else base }
+    Box(
+        modifier = clickableModifier,
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription, tint = iconTint)
+    }
+}
+
+@Composable
 private fun ChatCenterDialog(
     conversations: SnapshotStateList<ChatConversation>,
     activeConversationId: String?,
@@ -356,60 +440,58 @@ private fun ChatCenterDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0x66000000))
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color.Transparent
         ) {
-            Surface(
+            Box(
                 modifier = Modifier
-                    .align(Alignment.Center)
-                    .fillMaxWidth(0.95f)
-                    .fillMaxHeight(0.9f),
-                shape = RoundedCornerShape(36.dp),
-                tonalElevation = 10.dp,
-                color = Color.White.copy(alpha = 0.97f)
+                    .fillMaxSize()
+                    .background(ChatCenterGradient)
+                    .padding(horizontal = 12.dp, vertical = 20.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(ChatCenterGradient)
-                        .padding(16.dp)
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    shape = RoundedCornerShape(28.dp),
+                    color = Color.White.copy(alpha = 0.94f)
                 ) {
-                    Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        shape = RoundedCornerShape(28.dp),
-                        color = Color.White.copy(alpha = 0.92f)
-                    ) {
-                        if (isFocusMode && selectedConversation != null) {
-                            FocusedConversation(
-                                conversation = selectedConversation,
-                                onSendMessage = { text -> onSendMessage(selectedConversation.id, text) },
-                                onBackToOverview = { isFocusMode = false },
-                                onNewChat = {
-                                    onNewChat()
-                                    isFocusMode = true
-                                },
-                                onDismiss = onDismiss
-                            )
-                        } else {
-                            ChatOverview(
-                                conversations = conversations,
-                                activeConversationId = activeConversationId,
-                                onDismiss = onDismiss,
-                                onNewChat = {
-                                    onNewChat()
-                                    isFocusMode = true
-                                },
-                                onSelectConversation = {
-                                    onSelectConversation(it)
-                                    isFocusMode = true
-                                },
-                                onSendMessage = onSendMessage,
-                                selectedConversation = selectedConversation
-                            )
-                        }
+                    if (isFocusMode && selectedConversation != null) {
+                        FocusedConversation(
+                            conversation = selectedConversation,
+                            onSendMessage = { text -> onSendMessage(selectedConversation.id, text) },
+                            onBackToOverview = { isFocusMode = false },
+                            onClose = onDismiss
+                        )
+                    } else {
+                        ChatOverview(
+                            conversations = conversations,
+                            activeConversationId = activeConversationId,
+                            onSelectConversation = {
+                                onSelectConversation(it)
+                                isFocusMode = true
+                            },
+                            selectedConversation = selectedConversation,
+                            onDismiss = onDismiss,
+                            onSendMessage = onSendMessage
+                        )
                     }
+                }
+                if (!isFocusMode) {
+                    OverlayCircleButton(
+                        icon = Icons.Default.Add,
+                        contentDescription = "Neuen Chat beginnen",
+                        onClick = {
+                            onNewChat()
+                            isFocusMode = true
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 16.dp, bottom = 24.dp),
+                        containerColor = Color(0xFF7048E8),
+                        contentColor = Color.White,
+                        size = 52.dp,
+                        shadowElevation = 10.dp
+                    )
                 }
             }
         }
@@ -420,65 +502,48 @@ private fun ChatCenterDialog(
 private fun ChatOverview(
     conversations: SnapshotStateList<ChatConversation>,
     activeConversationId: String?,
-    onDismiss: () -> Unit,
-    onNewChat: () -> Unit,
     onSelectConversation: (String) -> Unit,
-    onSendMessage: (String, String) -> Unit,
-    selectedConversation: ChatConversation?
+    selectedConversation: ChatConversation?,
+    onDismiss: () -> Unit,
+    onSendMessage: (String, String) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 32.dp, vertical = 20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück")
+            }
+            Column(modifier = Modifier.padding(start = 6.dp)) {
                 Text(
                     text = "Begleit-Chat",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
                     color = Color(0xFF211946)
                 )
                 Text(
-                    text = "Sieh dir vergangene Unterhaltungen an oder beginne eine neue Frage.",
+                    text = "Wähle eine Unterhaltung oder starte eine neue Frage.",
                     color = Color(0xFF6B6B7A),
-                    fontSize = 13.sp
+                    fontSize = 12.sp
                 )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Button(
-                    onClick = onNewChat,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF7048E8),
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(20.dp)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Neuer Chat")
-                }
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Schließen")
-                }
             }
         }
 
-        Divider(color = Color(0xFFE4DAFF))
-
         Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 28.dp, vertical = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(28.dp)
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             Surface(
                 modifier = Modifier
-                    .widthIn(min = 300.dp, max = 340.dp)
+                    .widthIn(min = 240.dp, max = 280.dp)
                     .fillMaxHeight(),
-                shape = RoundedCornerShape(28.dp),
+                shape = RoundedCornerShape(22.dp),
                 tonalElevation = 2.dp,
                 color = Color.White.copy(alpha = 0.95f)
             ) {
@@ -495,7 +560,7 @@ private fun ChatOverview(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight(),
-                    shape = RoundedCornerShape(32.dp),
+                    shape = RoundedCornerShape(28.dp),
                     tonalElevation = 4.dp,
                     color = Color.White
                 ) {
@@ -510,19 +575,22 @@ private fun ChatOverview(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight(),
-                    shape = RoundedCornerShape(32.dp),
+                    shape = RoundedCornerShape(28.dp),
                     color = Color(0xFFEDE9FF)
                 ) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
                             Icon(Icons.Default.Chat, contentDescription = null, tint = Color(0xFF7048E8))
                             Text(
                                 "Starte einen neuen Chat, um loszulegen.",
                                 color = Color(0xFF6B6B7A),
-                                fontSize = 14.sp
+                                fontSize = 13.sp
                             )
                         }
                     }
@@ -537,50 +605,43 @@ private fun FocusedConversation(
     conversation: ChatConversation,
     onSendMessage: (String) -> Unit,
     onBackToOverview: () -> Unit,
-    onNewChat: () -> Unit,
-    onDismiss: () -> Unit
+    onClose: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBackToOverview) {
-                    Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Übersicht anzeigen")
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Column {
+            IconButton(onClick = onBackToOverview) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Zurück zur Übersicht")
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = conversation.title,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 18.sp,
+                    color = Color(0xFF211946)
+                )
+                val lastUserMessage = conversation.messages.lastOrNull { it.sender == ChatSender.User }
+                lastUserMessage?.let {
                     Text(
-                        text = conversation.title,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 22.sp,
-                        color = Color(0xFF211946)
+                        text = "Letzte Frage: ${it.content}",
+                        fontSize = 12.sp,
+                        color = Color(0xFF6B6B7A),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    val lastUserMessage = conversation.messages.lastOrNull { it.sender == ChatSender.User }
-                    lastUserMessage?.let {
-                        Text(
-                            text = "Letzte Frage: ${it.content}",
-                            fontSize = 13.sp,
-                            color = Color(0xFF6B6B7A),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onNewChat) {
-                    Icon(Icons.Default.Add, contentDescription = null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Neuer Chat")
-                }
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Schließen")
-                }
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, contentDescription = "Chat schließen")
             }
         }
 
@@ -588,8 +649,8 @@ private fun FocusedConversation(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 12.dp),
-            shape = RoundedCornerShape(36.dp),
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            shape = RoundedCornerShape(32.dp),
             tonalElevation = 4.dp,
             color = Color.White
         ) {
@@ -635,11 +696,12 @@ private fun ConversationList(
                             shape = RoundedCornerShape(16.dp)
                         )
                         .clickable { onSelectConversation(conversation.id) }
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
                     Text(
                         text = conversation.title,
                         fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp,
                         color = Color(0xFF2B2B2B)
                     )
                     val lastMessage = conversation.messages.lastOrNull()?.content ?: "Noch keine Nachrichten"
@@ -647,8 +709,8 @@ private fun ConversationList(
                         text = lastMessage,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        color = Color.Gray,
-                        fontSize = 12.sp
+                        color = Color(0xFF7B7B88),
+                        fontSize = 11.sp
                     )
                 }
             }
@@ -686,9 +748,9 @@ private fun ConversationDetail(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 state = listState,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(conversation.messages, key = { it.id }) { message ->
                     ChatBubble(message = message)
@@ -698,33 +760,24 @@ private fun ConversationDetail(
 
         var input by rememberSaveable(conversation.id) { mutableStateOf("") }
         val focusManager = LocalFocusManager.current
-        val questionSuggestions = remember(conversation.id) {
-            listOf(
-                "Wie liege ich heute im Vergleich zu meinen Makrozielen?",
-                "Hast du eine Idee für eine ausgewogene nächste Mahlzeit?",
-                "Welche Mahlzeit hatte die meisten Proteine?"
-            )
-        }
-
-        if (questionSuggestions.isNotEmpty()) {
-            SuggestionRow(
-                suggestions = questionSuggestions,
-                onSuggestionSelected = { input = it }
-            )
-        }
-
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Nachricht oder Frage eingeben…") },
+                placeholder = {
+                    Text(
+                        "Nachricht oder Frage eingeben…",
+                        fontSize = 13.sp
+                    )
+                },
+                textStyle = TextStyle(fontSize = 14.sp),
                 keyboardOptions = KeyboardOptions(
                     capitalization = KeyboardCapitalization.Sentences,
                     imeAction = ImeAction.Send
@@ -739,7 +792,9 @@ private fun ConversationDetail(
                 minLines = 1,
                 maxLines = 4
             )
-            Button(
+            OverlayCircleButton(
+                icon = Icons.AutoMirrored.Filled.Send,
+                contentDescription = "Senden",
                 onClick = {
                     if (input.isNotBlank()) {
                         onSendMessage(input)
@@ -747,10 +802,12 @@ private fun ConversationDetail(
                         focusManager.clearFocus()
                     }
                 },
-                enabled = input.isNotBlank()
-            ) {
-                Text("Senden")
-            }
+                containerColor = Color(0xFF7048E8),
+                contentColor = Color.White,
+                size = 44.dp,
+                enabled = input.isNotBlank(),
+                shadowElevation = 6.dp
+            )
         }
     }
 }
@@ -768,7 +825,7 @@ private fun DefaultConversationHeader(conversation: ChatConversation) {
             Text(
                 text = conversation.title,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 18.sp,
+                fontSize = 15.sp,
                 color = Color(0xFF2B2B2B)
             )
             val lastUserMessage = conversation.messages.lastOrNull { it.sender == ChatSender.User }
@@ -776,33 +833,11 @@ private fun DefaultConversationHeader(conversation: ChatConversation) {
                 Text(
                     text = "Letzte Frage: ${it.content}",
                     color = Color.Gray,
-                    fontSize = 12.sp,
+                    fontSize = 10.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SuggestionRow(
-    suggestions: List<String>,
-    onSuggestionSelected: (String) -> Unit
-) {
-    FlowRow(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        suggestions.forEach { suggestion ->
-            AssistChip(
-                onClick = { onSuggestionSelected(suggestion) },
-                label = { Text(suggestion) }
-            )
         }
     }
 }
@@ -814,26 +849,33 @@ private fun ChatBubble(message: ChatMessage) {
         message.contextType == ChatContextType.History -> Color(0xFFEAFBF1)
         message.contextType == ChatContextType.CarryOver -> Color(0xFFE3F0FF)
         message.contextType == ChatContextType.Intro -> Color(0xFFF0ECFF)
+        message.contextType == ChatContextType.Loading -> Color(0xFFEDECFB)
+        message.contextType == ChatContextType.Error -> Color(0xFFFFE8E6)
         isUser -> Color(0xFF7048E8)
         else -> Color(0xFFF6F6F6)
     }
-    val contentColor = if (isUser) Color.White else Color(0xFF2B2B2B)
+    val contentColor = when {
+        message.contextType == ChatContextType.Error -> Color(0xFF7A271A)
+        isUser -> Color.White
+        else -> Color(0xFF2B2B2B)
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
     ) {
         Surface(
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(18.dp),
             color = backgroundColor
         ) {
             Column(
                 modifier = Modifier
-                    .widthIn(max = 360.dp)
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .widthIn(max = 320.dp)
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
                 val header = when (message.contextType) {
                     ChatContextType.History -> "Übermittelte Infos"
                     ChatContextType.CarryOver -> "Überblick aus früheren Chats"
+                    ChatContextType.Error -> "Hinweis"
                     else -> null
                 }
                 if (header != null) {
@@ -841,16 +883,34 @@ private fun ChatBubble(message: ChatMessage) {
                         text = header,
                         fontWeight = FontWeight.SemiBold,
                         color = Color(0xFF2B2B2B),
-                        fontSize = 13.sp
+                        fontSize = 12.sp
                     )
                     Spacer(Modifier.height(4.dp))
                 }
-                Text(
-                    text = message.content,
-                    color = contentColor,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp
-                )
+                if (message.contextType == ChatContextType.Loading) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Text(
+                            text = message.content,
+                            color = contentColor,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp
+                        )
+                    }
+                } else {
+                    Text(
+                        text = message.content,
+                        color = contentColor,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+                }
             }
         }
     }
@@ -911,7 +971,8 @@ private fun buildConversationContext(
         history
     }
     return buildString {
-        appendLine("System-Anweisung: $CHAT_SYSTEM_PROMPT")
+        appendLine("Coach-Richtlinie:")
+        appendLine(CHAT_SYSTEM_PROMPT.trimIndent())
         appendLine()
         appendLine("Profil-Überblick:")
         appendLine(profileSummary)
@@ -919,6 +980,11 @@ private fun buildConversationContext(
         appendLine("Bisheriger Chat-Verlauf:")
         append(historySection)
     }.trimEnd()
+}
+
+private fun ChatMessage.toHistoryEntry(): ChatHistoryEntry = when (sender) {
+    ChatSender.User -> ChatHistoryEntry(ChatHistoryRole.USER, content.trim())
+    ChatSender.Assistant -> ChatHistoryEntry(ChatHistoryRole.ASSISTANT, content.trim())
 }
 
 private fun buildPreviousConversationSummary(
@@ -940,166 +1006,6 @@ private fun buildPreviousConversationSummary(
     }.trimEnd()
 }
 
-private fun generateAssistantReply(
-    userMessage: String,
-    meals: List<MealEntry>
-): String {
-    val locale = Locale.getDefault()
-    val normalizedMessage = userMessage.lowercase(locale)
-    val today = LocalDate.now()
-    val todaysMeals = meals.filter {
-        it.recordedAt.atZone(ZoneId.systemDefault()).toLocalDate() == today
-    }
-    val totals = todaysMeals.fold(NutrientTotals()) { acc, meal -> acc + meal }
-    val macroGoals = mapOf(
-        "kohlenhydrate" to 200.0,
-        "protein" to 60.0,
-        "fett" to 70.0
-    )
-    val consumedByMacro = mapOf(
-        "kohlenhydrate" to totals.carbGrams,
-        "protein" to totals.proteinGrams,
-        "fett" to totals.fatGrams
-    )
-    val deficits = macroGoals.mapValues { (key, goal) -> goal - consumedByMacro.getValue(key) }
-
-    fun macroLabel(key: String): String = when (key) {
-        "kohlenhydrate" -> "Kohlenhydrate"
-        "protein" -> "Protein"
-        else -> "Fett"
-    }
-
-    fun formatGrams(value: Double): String = String.format(locale, "%.1f g", value)
-
-    fun progressChunk(key: String): String {
-        val goal = macroGoals.getValue(key)
-        val consumed = consumedByMacro.getValue(key)
-        if (goal <= 0.0) return "${macroLabel(key)}: ${formatGrams(consumed)}"
-        val percent = ((consumed / goal) * 100).roundToInt()
-        val diff = goal - consumed
-        val remark = when {
-            diff > 5.0 -> "es fehlen ${formatGrams(diff)}"
-            diff < -5.0 -> "du liegst ${formatGrams(abs(diff))} über dem Ziel"
-            else -> "du liegst im Zielbereich"
-        }
-        return "${macroLabel(key)}: ${formatGrams(consumed)} (${percent}% des Tagesziels) – $remark"
-    }
-
-    fun progressSentence(keys: List<String>): String =
-        keys.joinToString(separator = "; ") { progressChunk(it) } + "."
-
-    val macroKeywords = mapOf(
-        "protein" to "protein",
-        "eiweiß" to "protein",
-        "kohlenhydrat" to "kohlenhydrate",
-        "kohlenhydrate" to "kohlenhydrate",
-        "carb" to "kohlenhydrate",
-        "kh" to "kohlenhydrate",
-        "fett" to "fett"
-    )
-    val requestedMacros = macroKeywords.entries
-        .filter { normalizedMessage.contains(it.key) }
-        .map { it.value }
-        .distinct()
-
-    val asksForSuggestion = listOf("idee", "vorschlag", "essen", "snack", "tipp", "empfehl").any {
-        normalizedMessage.contains(it)
-    }
-    val asksForProgress = listOf("ziel", "fortschritt", "stand", "status", "wie liege").any {
-        normalizedMessage.contains(it)
-    }
-    val asksForSummary = normalizedMessage.contains("zusammenfassung") ||
-        normalizedMessage.contains("überblick") || normalizedMessage.contains("gesamt")
-    val asksForTrend = normalizedMessage.contains("trend") || normalizedMessage.contains("entwicklung")
-    val asksForLastMeal = normalizedMessage.contains("letzte") &&
-        (normalizedMessage.contains("mahlzeit") || normalizedMessage.contains("gegessen") ||
-            normalizedMessage.contains("essen"))
-
-    fun suggestionSentence(): String {
-        val primaryNeed = deficits
-            .filterValues { it > 5.0 }
-            .maxByOrNull { it.value }
-            ?.key
-        val baseLine = when {
-            todaysMeals.isEmpty() -> "Heute wurde noch keine Mahlzeit gespeichert."
-            primaryNeed != null -> progressSentence(listOf(primaryNeed))
-            else -> "Du liegst heute sehr nah an deinen Zielen."
-        }
-        val suggestion = when (primaryNeed) {
-            "protein" -> "Ein Vollkornbrot mit Hüttenkäse und etwas Gemüse würde dir extra Protein liefern."
-            "kohlenhydrate" -> "Haferflocken mit Joghurt und Beeren füllen die Kohlenhydratspeicher sanft auf."
-            "fett" -> "Ein kleiner Avocado-Toast oder ein paar Nüsse bringen gesunde Fette dazu."
-            else -> "Eine bunte Bowl mit Gemüse, Hülsenfrüchten und etwas Obst hält die Balance."
-        }
-        return listOf(baseLine, suggestion).joinToString(" ")
-    }
-
-    if (requestedMacros.isNotEmpty()) {
-        if (todaysMeals.isEmpty()) {
-            return "Heute wurde noch keine Mahlzeit gespeichert. Ergänze zuerst eine Mahlzeit, dann zeige ich dir die Werte."
-        }
-        val macrosToReport = requestedMacros.take(3)
-        val progressAnswer = progressSentence(macrosToReport)
-        if (macrosToReport.size == 1) {
-            val key = macrosToReport.first()
-            val highlightMeal = when (key) {
-                "protein" -> meals.maxByOrNull { it.proteinGrams }
-                "kohlenhydrate" -> meals.maxByOrNull { it.carbGrams }
-                else -> meals.maxByOrNull { it.fatGrams }
-            }
-            val detail = highlightMeal?.let { meal ->
-                val value = when (key) {
-                    "protein" -> meal.proteinGrams
-                    "kohlenhydrate" -> meal.carbGrams
-                    else -> meal.fatGrams
-                }
-                "Am meisten ${macroLabel(key)} lieferte ${meal.description} mit ${formatGrams(value)}."
-            }
-            return listOfNotNull(progressAnswer, detail).joinToString(" ")
-        }
-        return progressAnswer
-    }
-
-    if (asksForSuggestion) {
-        return suggestionSentence()
-    }
-
-    if (asksForProgress || asksForSummary || asksForTrend) {
-        if (todaysMeals.isEmpty()) {
-            return "Heute wurde noch keine Mahlzeit gespeichert. Sobald du eine ergänzt, berechne ich deinen Fortschritt."
-        }
-        val countSentence = "Heute hast du ${todaysMeals.size} Mahlzeiten gespeichert."
-        val overviewSentence = progressSentence(listOf("kohlenhydrate", "protein", "fett"))
-        val focusSentence = when {
-            asksForTrend || asksForSummary -> deficits
-                .maxByOrNull { abs(it.value) }
-                ?.let { (key, value) ->
-                    val direction = if (value > 5.0) "offen" else if (value < -5.0) "leicht über dem Ziel" else "im Zielbereich"
-                    "Größtes Thema sind aktuell ${macroLabel(key)} – du bist dort $direction."
-                }
-            else -> null
-        }
-        return listOfNotNull(countSentence, overviewSentence, focusSentence).joinToString(" ")
-    }
-
-    if (asksForLastMeal) {
-        val lastMeal = meals.maxByOrNull { it.recordedAt }
-        return lastMeal?.let { meal ->
-            val formattedTime = meal.recordedAt
-                .atZone(ZoneId.systemDefault())
-                .format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm", locale))
-            "Deine letzte Mahlzeit war ${meal.description} am $formattedTime. Sie brachte ${formatGrams(meal.carbGrams)} Kohlenhydrate, ${formatGrams(meal.proteinGrams)} Protein und ${formatGrams(meal.fatGrams)} Fett."
-        } ?: "Es wurden bisher noch keine Mahlzeiten gespeichert."
-    }
-
-    if (todaysMeals.isNotEmpty()) {
-        val defaultOverview = progressSentence(listOf("kohlenhydrate", "protein", "fett"))
-        return "Ich habe deine Frage verstanden, konnte sie aber keinem Bereich zuordnen. $defaultOverview"
-    }
-
-    return "Ich habe deine Frage verstanden, aber heute liegt noch keine Mahlzeit vor. Frag gern nach Ideen oder füge zuerst eine Mahlzeit hinzu."
-}
-
 private data class ChatConversation(
     val id: String,
     val title: String,
@@ -1115,7 +1021,7 @@ private data class ChatMessage(
 
 private enum class ChatSender { User, Assistant }
 
-private enum class ChatContextType { Intro, History, CarryOver }
+private enum class ChatContextType { Intro, History, CarryOver, Loading, Error }
 
 @Composable
 private fun MealCaptureScreen(
@@ -1150,10 +1056,11 @@ private fun MealCaptureScreen(
     }
 
     val nutrientGoals = listOf(
-        NutrientGoal(label = "Kohlenhydrate", consumed = totals.carbGrams, goal = 200.0, color = Mint),
-        NutrientGoal(label = "Protein", consumed = totals.proteinGrams, goal = 60.0, color = Lilac),
+        NutrientGoal(label = "Kohlenhydrate", consumed = totals.carbGrams, goal = 250.0, color = Mint),
+        NutrientGoal(label = "Protein", consumed = totals.proteinGrams, goal = 55.0, color = Lilac),
         NutrientGoal(label = "Fett", consumed = totals.fatGrams, goal = 70.0, color = Peach)
     )
+    val calorieGoal = 2000.0
 
     Column(
         modifier = modifier
@@ -1164,16 +1071,26 @@ private fun MealCaptureScreen(
     ) {
         Spacer(Modifier.height(12.dp))
         KidFriendlyCard {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(
-                    text = "Deine Tagesziele",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF2B2B2B)
-                )
-                Text(
-                    text = "So viel hast du heute schon geschafft!",
-                    color = Color.Gray
+            Column(
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Deine Tagesziele",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF2B2B2B)
+                    )
+                    Text(
+                        text = "So viel hast du heute schon geschafft!",
+                        color = Color.Gray
+                    )
+                }
+                CalorieProgressRing(
+                    consumed = totals.calories,
+                    goal = calorieGoal,
+                    modifier = Modifier.padding(top = 4.dp)
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1181,7 +1098,7 @@ private fun MealCaptureScreen(
                     maxItemsInEachRow = 3
                 ) {
                     nutrientGoals.forEach { goal ->
-                        NutrientGoalRing(goal)
+                        NutrientGoalRing(goal, compact = true)
                     }
                 }
             }
@@ -1433,6 +1350,9 @@ private data class NutrientTotals(
     val carbGrams: Double = 0.0,
     val proteinGrams: Double = 0.0
 ) {
+    val calories: Double
+        get() = (fatGrams * 9) + (carbGrams * 4) + (proteinGrams * 4)
+
     operator fun plus(meal: MealEntry): NutrientTotals = NutrientTotals(
         fatGrams = fatGrams + meal.fatGrams,
         carbGrams = carbGrams + meal.carbGrams,
@@ -1448,15 +1368,20 @@ private data class NutrientGoal(
 )
 
 @Composable
-private fun NutrientGoalRing(goal: NutrientGoal) {
+private fun NutrientGoalRing(goal: NutrientGoal, compact: Boolean = false) {
+    val ringSize = if (compact) 84.dp else 104.dp
+    val strokeWidth = if (compact) 10.dp else 12.dp
+    val columnWidth = if (compact) 92.dp else 116.dp
+    val labelSize = if (compact) 11.sp else 12.sp
+    val valueSize = if (compact) 14.sp else 15.sp
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.width(108.dp)
+        modifier = Modifier.width(columnWidth)
     ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(100.dp)) {
-            Canvas(modifier = Modifier.size(100.dp)) {
-                val stroke = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Round)
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(ringSize)) {
+            Canvas(modifier = Modifier.size(ringSize)) {
+                val stroke = Stroke(width = strokeWidth.toPx(), cap = StrokeCap.Round)
                 drawArc(
                     color = goal.color.copy(alpha = 0.2f),
                     startAngle = -90f,
@@ -1477,16 +1402,115 @@ private fun NutrientGoalRing(goal: NutrientGoal) {
                 Text(
                     text = String.format(Locale.getDefault(), "%.0f g", goal.consumed),
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF2B2B2B)
+                    color = Color(0xFF2B2B2B),
+                    fontSize = valueSize
                 )
-                Text(goal.label, color = Color.Gray, fontSize = 12.sp)
+                Text(goal.label, color = Color.Gray, fontSize = labelSize)
             }
         }
         Text(
             text = "Ziel: ${String.format(Locale.getDefault(), "%.0f g", goal.goal)}",
             color = Color(0xFF2B2B2B),
+            fontSize = labelSize
+        )
+    }
+}
+
+@Composable
+private fun CalorieProgressRing(
+    consumed: Double,
+    goal: Double,
+    modifier: Modifier = Modifier,
+    color: Color = Color(0xFF7048E8)
+) {
+    val formattedConsumed = String.format(Locale.getDefault(), "%.0f kcal", consumed)
+    val formattedGoal = String.format(Locale.getDefault(), "%.0f kcal", goal)
+    val progress = if (goal > 0) (consumed / goal).coerceIn(0.0, 1.0) else 0.0
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(164.dp)) {
+            Canvas(modifier = Modifier.size(164.dp)) {
+                val stroke = Stroke(width = 16.dp.toPx(), cap = StrokeCap.Round)
+                drawArc(
+                    color = color.copy(alpha = 0.15f),
+                    startAngle = -90f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    style = stroke
+                )
+                drawArc(
+                    color = color,
+                    startAngle = -90f,
+                    sweepAngle = (360 * progress).toFloat(),
+                    useCenter = false,
+                    style = stroke
+                )
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = formattedConsumed,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF2B2B2B),
+                    fontSize = 18.sp
+                )
+                Text(
+                    text = "Kalorien heute",
+                    color = Color(0xFF6B6B7A),
+                    fontSize = 12.sp
+                )
+            }
+        }
+        Text(
+            text = "Ziel: $formattedGoal",
+            color = Color(0xFF2B2B2B),
             fontSize = 12.sp
         )
+    }
+}
+
+@Composable
+private fun MealCalorieBadge(
+    calories: Double,
+    modifier: Modifier = Modifier,
+    color: Color = Color(0xFF7048E8)
+) {
+    val formattedCalories = String.format(Locale.getDefault(), "%.0f", calories)
+    Box(
+        modifier = modifier.size(92.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val stroke = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Round)
+            drawArc(
+                color = color.copy(alpha = 0.18f),
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                style = stroke
+            )
+            drawArc(
+                color = color,
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                style = stroke
+            )
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "$formattedCalories",
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF2B2B2B)
+            )
+            Text(
+                text = "kcal",
+                color = Color(0xFF6B6B7A),
+                fontSize = 12.sp
+            )
+        }
     }
 }
 
@@ -1666,7 +1690,29 @@ private fun MealHistoryCard(
 
     KidFriendlyCard(modifier = cardModifier) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(meal.description, fontWeight = FontWeight.SemiBold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    MealThumbnail(
+                        imageBase64 = meal.imageBase64,
+                        description = meal.description
+                    )
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(meal.description, fontWeight = FontWeight.SemiBold)
+                        Text(meal.formattedTimestamp(), color = Color.Gray, fontSize = 11.sp)
+                    }
+                }
+                MealCalorieBadge(calories = meal.calories)
+            }
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1675,7 +1721,6 @@ private fun MealHistoryCard(
                 NutrientChip(label = "Kohlenhydrate", value = meal.carbGrams, color = Mint)
                 NutrientChip(label = "Protein", value = meal.proteinGrams, color = Lilac)
             }
-            Text(meal.formattedTimestamp(), color = Color.Gray, fontSize = 12.sp)
             if (onEditClick != null || onDeleteClick != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1804,6 +1849,47 @@ private fun EditMealDialog(
             }
         }
     )
+}
+
+@Composable
+private fun MealThumbnail(
+    imageBase64: String?,
+    description: String,
+    modifier: Modifier = Modifier
+) {
+    val imageBitmap = remember(imageBase64) {
+        imageBase64?.let { encoded ->
+            runCatching {
+                val bytes = Base64.decode(encoded, Base64.DEFAULT)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+            }.getOrNull()
+        }
+    }
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier = modifier
+            .size(56.dp)
+            .shadow(4.dp, shape, clip = false)
+            .clip(shape)
+            .background(Color(0xFFF3F0FF))
+            .border(1.dp, Color(0xFFE0D9FF), shape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (imageBitmap != null) {
+            Image(
+                bitmap = imageBitmap,
+                contentDescription = description,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.Image,
+                contentDescription = null,
+                tint = Color(0xFF7A6BC9)
+            )
+        }
+    }
 }
 
 @Composable

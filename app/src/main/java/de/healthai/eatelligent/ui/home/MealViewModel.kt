@@ -92,7 +92,7 @@ class MealViewModel(
             }
             val result = analysis.getOrNull()
             if (result != null) {
-                persistAnalysis(result)
+                persistAnalysis(result, base64Image)
             }
             _isAnalyzing.value = false
         }
@@ -142,14 +142,15 @@ class MealViewModel(
         return android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
     }
 
-    private suspend fun persistAnalysis(analysis: MealAnalysis) {
+    private suspend fun persistAnalysis(analysis: MealAnalysis, imageBase64: String) {
         val newEntry = MealEntry(
             id = UUID.randomUUID().toString(),
             recordedAt = Instant.now(),
             description = analysis.description,
             fatGrams = analysis.fatGrams,
             carbGrams = analysis.carbGrams,
-            proteinGrams = analysis.proteinGrams
+            proteinGrams = analysis.proteinGrams,
+            imageBase64 = imageBase64
         )
         persistMealEntry(newEntry)
     }
