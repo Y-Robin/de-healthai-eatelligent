@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -49,6 +48,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Card
@@ -75,6 +75,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -99,9 +100,13 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import de.healthai.eatelligent.BuildConfig
 import de.healthai.eatelligent.Gender
 import de.healthai.eatelligent.UserConfiguration
 import de.healthai.eatelligent.data.MealEntry
+import de.healthai.eatelligent.data.ChatHistoryEntry
+import de.healthai.eatelligent.data.ChatHistoryRole
+import de.healthai.eatelligent.data.OpenAiChatAssistant
 import java.time.Instant
 import java.time.LocalDate
 import java.time.Period
@@ -110,8 +115,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
 import androidx.compose.runtime.snapshots.SnapshotStateList
-import kotlin.math.abs
-import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 private enum class MealHomeTab { Capture, History, Settings }
 
@@ -133,8 +137,12 @@ private val ChatCenterGradient = Brush.linearGradient(
     )
 )
 
-private const val CHAT_SYSTEM_PROMPT =
-    "Beantworte ausschließlich die gestellte Frage in höchstens drei klaren Sätzen."
+private const val CHAT_SYSTEM_PROMPT = """
+    Du bist ein empathischer Ernährungscoach. Antworte auf Deutsch, liefere klare
+    und hilfreiche Antworten und gehe – wo passend – auf konkrete Mahlzeiten ein.
+    Nenne Makronährstoffe immer für die gesamte Mahlzeit und gib deine beste
+    Einschätzung, selbst wenn Unsicherheiten bestehen.
+"""
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -157,6 +165,8 @@ fun MealHomeScreen(
     val profileSummary = remember(userConfiguration, meals) {
         buildProfileSummary(userConfiguration, meals)
     }
+    val coroutineScope = rememberCoroutineScope()
+    val chatAssistant = remember { OpenAiChatAssistant(BuildConfig.OPENAI_API_KEY) }
 
     LaunchedEffect(conversations.size) {
         if (conversations.isNotEmpty() && activeConversationId == null) {
@@ -211,15 +221,51 @@ fun MealHomeScreen(
             content = contextPayload,
             contextType = ChatContextType.History
         )
-        val assistantReply = generateAssistantReply(
-            userMessage = trimmed,
-            meals = meals
-        )
+        val loadingId = UUID.randomUUID().toString()
         conversation.messages += ChatMessage(
-            id = UUID.randomUUID().toString(),
+            id = loadingId,
             sender = ChatSender.Assistant,
-            content = assistantReply
+            content = "Ich denke kurz nach …",
+            contextType = ChatContextType.Loading
         )
+        val historyEntries = plainMessages.map { it.toHistoryEntry() }
+        val carryOverSummary = conversation.messages
+            .firstOrNull { it.contextType == ChatContextType.CarryOver }
+            ?.content
+        coroutineScope.launch {
+            val reply = runCatching {
+                chatAssistant.generateReply(
+                    profileSummary = profileSummary,
+                    history = historyEntries,
+                    carryOverSummary = carryOverSummary
+                )
+            }
+            val replacement = reply.fold(
+                onSuccess = { text ->
+                    ChatMessage(
+                        id = loadingId,
+                        sender = ChatSender.Assistant,
+                        content = text.trim()
+                    )
+                },
+                onFailure = { error ->
+                    val reason = error.localizedMessage?.takeIf { it.isNotBlank() }
+                        ?: "Bitte versuche es später erneut."
+                    ChatMessage(
+                        id = loadingId,
+                        sender = ChatSender.Assistant,
+                        content = "Leider gab es ein Problem beim Abrufen der Antwort.\n$reason",
+                        contextType = ChatContextType.Error
+                    )
+                }
+            )
+            val index = conversation.messages.indexOfFirst { it.id == loadingId }
+            if (index >= 0) {
+                conversation.messages[index] = replacement
+            } else {
+                conversation.messages += replacement
+            }
+        }
     }
 
     fun openChatCenter() {
@@ -698,21 +744,6 @@ private fun ConversationDetail(
 
         var input by rememberSaveable(conversation.id) { mutableStateOf("") }
         val focusManager = LocalFocusManager.current
-        val questionSuggestions = remember(conversation.id) {
-            listOf(
-                "Wie liege ich heute im Vergleich zu meinen Makrozielen?",
-                "Hast du eine Idee für eine ausgewogene nächste Mahlzeit?",
-                "Welche Mahlzeit hatte die meisten Proteine?"
-            )
-        }
-
-        if (questionSuggestions.isNotEmpty()) {
-            SuggestionRow(
-                suggestions = questionSuggestions,
-                onSuggestionSelected = { input = it }
-            )
-        }
-
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -768,7 +799,7 @@ private fun DefaultConversationHeader(conversation: ChatConversation) {
             Text(
                 text = conversation.title,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 18.sp,
+                fontSize = 16.sp,
                 color = Color(0xFF2B2B2B)
             )
             val lastUserMessage = conversation.messages.lastOrNull { it.sender == ChatSender.User }
@@ -776,33 +807,11 @@ private fun DefaultConversationHeader(conversation: ChatConversation) {
                 Text(
                     text = "Letzte Frage: ${it.content}",
                     color = Color.Gray,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SuggestionRow(
-    suggestions: List<String>,
-    onSuggestionSelected: (String) -> Unit
-) {
-    FlowRow(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        suggestions.forEach { suggestion ->
-            AssistChip(
-                onClick = { onSuggestionSelected(suggestion) },
-                label = { Text(suggestion) }
-            )
         }
     }
 }
@@ -814,10 +823,16 @@ private fun ChatBubble(message: ChatMessage) {
         message.contextType == ChatContextType.History -> Color(0xFFEAFBF1)
         message.contextType == ChatContextType.CarryOver -> Color(0xFFE3F0FF)
         message.contextType == ChatContextType.Intro -> Color(0xFFF0ECFF)
+        message.contextType == ChatContextType.Loading -> Color(0xFFEDECFB)
+        message.contextType == ChatContextType.Error -> Color(0xFFFFE8E6)
         isUser -> Color(0xFF7048E8)
         else -> Color(0xFFF6F6F6)
     }
-    val contentColor = if (isUser) Color.White else Color(0xFF2B2B2B)
+    val contentColor = when {
+        message.contextType == ChatContextType.Error -> Color(0xFF7A271A)
+        isUser -> Color.White
+        else -> Color(0xFF2B2B2B)
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
@@ -834,6 +849,7 @@ private fun ChatBubble(message: ChatMessage) {
                 val header = when (message.contextType) {
                     ChatContextType.History -> "Übermittelte Infos"
                     ChatContextType.CarryOver -> "Überblick aus früheren Chats"
+                    ChatContextType.Error -> "Hinweis"
                     else -> null
                 }
                 if (header != null) {
@@ -845,12 +861,30 @@ private fun ChatBubble(message: ChatMessage) {
                     )
                     Spacer(Modifier.height(4.dp))
                 }
-                Text(
-                    text = message.content,
-                    color = contentColor,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp
-                )
+                if (message.contextType == ChatContextType.Loading) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Text(
+                            text = message.content,
+                            color = contentColor,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp
+                        )
+                    }
+                } else {
+                    Text(
+                        text = message.content,
+                        color = contentColor,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp
+                    )
+                }
             }
         }
     }
@@ -911,7 +945,8 @@ private fun buildConversationContext(
         history
     }
     return buildString {
-        appendLine("System-Anweisung: $CHAT_SYSTEM_PROMPT")
+        appendLine("Coach-Richtlinie:")
+        appendLine(CHAT_SYSTEM_PROMPT.trimIndent())
         appendLine()
         appendLine("Profil-Überblick:")
         appendLine(profileSummary)
@@ -919,6 +954,11 @@ private fun buildConversationContext(
         appendLine("Bisheriger Chat-Verlauf:")
         append(historySection)
     }.trimEnd()
+}
+
+private fun ChatMessage.toHistoryEntry(): ChatHistoryEntry = when (sender) {
+    ChatSender.User -> ChatHistoryEntry(ChatHistoryRole.USER, content.trim())
+    ChatSender.Assistant -> ChatHistoryEntry(ChatHistoryRole.ASSISTANT, content.trim())
 }
 
 private fun buildPreviousConversationSummary(
@@ -940,166 +980,6 @@ private fun buildPreviousConversationSummary(
     }.trimEnd()
 }
 
-private fun generateAssistantReply(
-    userMessage: String,
-    meals: List<MealEntry>
-): String {
-    val locale = Locale.getDefault()
-    val normalizedMessage = userMessage.lowercase(locale)
-    val today = LocalDate.now()
-    val todaysMeals = meals.filter {
-        it.recordedAt.atZone(ZoneId.systemDefault()).toLocalDate() == today
-    }
-    val totals = todaysMeals.fold(NutrientTotals()) { acc, meal -> acc + meal }
-    val macroGoals = mapOf(
-        "kohlenhydrate" to 200.0,
-        "protein" to 60.0,
-        "fett" to 70.0
-    )
-    val consumedByMacro = mapOf(
-        "kohlenhydrate" to totals.carbGrams,
-        "protein" to totals.proteinGrams,
-        "fett" to totals.fatGrams
-    )
-    val deficits = macroGoals.mapValues { (key, goal) -> goal - consumedByMacro.getValue(key) }
-
-    fun macroLabel(key: String): String = when (key) {
-        "kohlenhydrate" -> "Kohlenhydrate"
-        "protein" -> "Protein"
-        else -> "Fett"
-    }
-
-    fun formatGrams(value: Double): String = String.format(locale, "%.1f g", value)
-
-    fun progressChunk(key: String): String {
-        val goal = macroGoals.getValue(key)
-        val consumed = consumedByMacro.getValue(key)
-        if (goal <= 0.0) return "${macroLabel(key)}: ${formatGrams(consumed)}"
-        val percent = ((consumed / goal) * 100).roundToInt()
-        val diff = goal - consumed
-        val remark = when {
-            diff > 5.0 -> "es fehlen ${formatGrams(diff)}"
-            diff < -5.0 -> "du liegst ${formatGrams(abs(diff))} über dem Ziel"
-            else -> "du liegst im Zielbereich"
-        }
-        return "${macroLabel(key)}: ${formatGrams(consumed)} (${percent}% des Tagesziels) – $remark"
-    }
-
-    fun progressSentence(keys: List<String>): String =
-        keys.joinToString(separator = "; ") { progressChunk(it) } + "."
-
-    val macroKeywords = mapOf(
-        "protein" to "protein",
-        "eiweiß" to "protein",
-        "kohlenhydrat" to "kohlenhydrate",
-        "kohlenhydrate" to "kohlenhydrate",
-        "carb" to "kohlenhydrate",
-        "kh" to "kohlenhydrate",
-        "fett" to "fett"
-    )
-    val requestedMacros = macroKeywords.entries
-        .filter { normalizedMessage.contains(it.key) }
-        .map { it.value }
-        .distinct()
-
-    val asksForSuggestion = listOf("idee", "vorschlag", "essen", "snack", "tipp", "empfehl").any {
-        normalizedMessage.contains(it)
-    }
-    val asksForProgress = listOf("ziel", "fortschritt", "stand", "status", "wie liege").any {
-        normalizedMessage.contains(it)
-    }
-    val asksForSummary = normalizedMessage.contains("zusammenfassung") ||
-        normalizedMessage.contains("überblick") || normalizedMessage.contains("gesamt")
-    val asksForTrend = normalizedMessage.contains("trend") || normalizedMessage.contains("entwicklung")
-    val asksForLastMeal = normalizedMessage.contains("letzte") &&
-        (normalizedMessage.contains("mahlzeit") || normalizedMessage.contains("gegessen") ||
-            normalizedMessage.contains("essen"))
-
-    fun suggestionSentence(): String {
-        val primaryNeed = deficits
-            .filterValues { it > 5.0 }
-            .maxByOrNull { it.value }
-            ?.key
-        val baseLine = when {
-            todaysMeals.isEmpty() -> "Heute wurde noch keine Mahlzeit gespeichert."
-            primaryNeed != null -> progressSentence(listOf(primaryNeed))
-            else -> "Du liegst heute sehr nah an deinen Zielen."
-        }
-        val suggestion = when (primaryNeed) {
-            "protein" -> "Ein Vollkornbrot mit Hüttenkäse und etwas Gemüse würde dir extra Protein liefern."
-            "kohlenhydrate" -> "Haferflocken mit Joghurt und Beeren füllen die Kohlenhydratspeicher sanft auf."
-            "fett" -> "Ein kleiner Avocado-Toast oder ein paar Nüsse bringen gesunde Fette dazu."
-            else -> "Eine bunte Bowl mit Gemüse, Hülsenfrüchten und etwas Obst hält die Balance."
-        }
-        return listOf(baseLine, suggestion).joinToString(" ")
-    }
-
-    if (requestedMacros.isNotEmpty()) {
-        if (todaysMeals.isEmpty()) {
-            return "Heute wurde noch keine Mahlzeit gespeichert. Ergänze zuerst eine Mahlzeit, dann zeige ich dir die Werte."
-        }
-        val macrosToReport = requestedMacros.take(3)
-        val progressAnswer = progressSentence(macrosToReport)
-        if (macrosToReport.size == 1) {
-            val key = macrosToReport.first()
-            val highlightMeal = when (key) {
-                "protein" -> meals.maxByOrNull { it.proteinGrams }
-                "kohlenhydrate" -> meals.maxByOrNull { it.carbGrams }
-                else -> meals.maxByOrNull { it.fatGrams }
-            }
-            val detail = highlightMeal?.let { meal ->
-                val value = when (key) {
-                    "protein" -> meal.proteinGrams
-                    "kohlenhydrate" -> meal.carbGrams
-                    else -> meal.fatGrams
-                }
-                "Am meisten ${macroLabel(key)} lieferte ${meal.description} mit ${formatGrams(value)}."
-            }
-            return listOfNotNull(progressAnswer, detail).joinToString(" ")
-        }
-        return progressAnswer
-    }
-
-    if (asksForSuggestion) {
-        return suggestionSentence()
-    }
-
-    if (asksForProgress || asksForSummary || asksForTrend) {
-        if (todaysMeals.isEmpty()) {
-            return "Heute wurde noch keine Mahlzeit gespeichert. Sobald du eine ergänzt, berechne ich deinen Fortschritt."
-        }
-        val countSentence = "Heute hast du ${todaysMeals.size} Mahlzeiten gespeichert."
-        val overviewSentence = progressSentence(listOf("kohlenhydrate", "protein", "fett"))
-        val focusSentence = when {
-            asksForTrend || asksForSummary -> deficits
-                .maxByOrNull { abs(it.value) }
-                ?.let { (key, value) ->
-                    val direction = if (value > 5.0) "offen" else if (value < -5.0) "leicht über dem Ziel" else "im Zielbereich"
-                    "Größtes Thema sind aktuell ${macroLabel(key)} – du bist dort $direction."
-                }
-            else -> null
-        }
-        return listOfNotNull(countSentence, overviewSentence, focusSentence).joinToString(" ")
-    }
-
-    if (asksForLastMeal) {
-        val lastMeal = meals.maxByOrNull { it.recordedAt }
-        return lastMeal?.let { meal ->
-            val formattedTime = meal.recordedAt
-                .atZone(ZoneId.systemDefault())
-                .format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm", locale))
-            "Deine letzte Mahlzeit war ${meal.description} am $formattedTime. Sie brachte ${formatGrams(meal.carbGrams)} Kohlenhydrate, ${formatGrams(meal.proteinGrams)} Protein und ${formatGrams(meal.fatGrams)} Fett."
-        } ?: "Es wurden bisher noch keine Mahlzeiten gespeichert."
-    }
-
-    if (todaysMeals.isNotEmpty()) {
-        val defaultOverview = progressSentence(listOf("kohlenhydrate", "protein", "fett"))
-        return "Ich habe deine Frage verstanden, konnte sie aber keinem Bereich zuordnen. $defaultOverview"
-    }
-
-    return "Ich habe deine Frage verstanden, aber heute liegt noch keine Mahlzeit vor. Frag gern nach Ideen oder füge zuerst eine Mahlzeit hinzu."
-}
-
 private data class ChatConversation(
     val id: String,
     val title: String,
@@ -1115,7 +995,7 @@ private data class ChatMessage(
 
 private enum class ChatSender { User, Assistant }
 
-private enum class ChatContextType { Intro, History, CarryOver }
+private enum class ChatContextType { Intro, History, CarryOver, Loading, Error }
 
 @Composable
 private fun MealCaptureScreen(

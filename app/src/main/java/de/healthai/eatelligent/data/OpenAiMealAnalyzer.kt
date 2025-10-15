@@ -105,7 +105,9 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
                     put(
                         "content",
                         "You are a pediatric nutrition assistant. Return concise kid-friendly " +
-                            "meal descriptions and macro nutrients in grams."
+                            "meal descriptions and macro nutrients in grams. Always estimate the " +
+                            "total for the complete meal, not per 100 g, and provide your best " +
+                            "educated guess even when information is uncertain."
                     )
                 }
             )
@@ -124,8 +126,10 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
                     put("role", "system")
                     put(
                         "content",
-                        "You are a pediatric nutrition assistant. Respond with minified JSON containing a " +
-                            "description string and macros object with fatGrams, carbGrams, and proteinGrams in grams."
+                            "You are a pediatric nutrition assistant. Respond with minified JSON containing a " +
+                            "description string and macros object with fatGrams, carbGrams, and proteinGrams in grams. " +
+                            "Report totals for the whole meal (never per 100 g) and share your best estimate even if " +
+                            "uncertainty remains."
                     )
                 }
             )
@@ -145,7 +149,8 @@ class OpenAiMealAnalyzer(private val apiKey: String) {
                         put("type", "text")
                         put(
                             "text",
-                            "Analyze the provided meal photo and estimate macro nutrients in grams."
+                            "Analyze the provided meal photo and estimate macro nutrients in grams for the entire meal " +
+                                "(not per 100 g). Share your best estimate even if you are uncertain."
                         )
                     }
                 )
