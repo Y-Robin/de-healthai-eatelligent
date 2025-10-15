@@ -567,7 +567,8 @@ private fun ChatOverview(
                     ConversationDetail(
                         conversation = selectedConversation,
                         onSendMessage = { text -> onSendMessage(selectedConversation.id, text) },
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        showInput = false
                     )
                 }
             } else {
@@ -724,7 +725,8 @@ private fun ConversationDetail(
     onSendMessage: (String) -> Unit,
     modifier: Modifier = Modifier,
     headerContent: (@Composable () -> Unit)? = null,
-    showHeader: Boolean = true
+    showHeader: Boolean = true,
+    showInput: Boolean = true
 ) {
     Column(
         modifier = modifier
@@ -760,54 +762,56 @@ private fun ConversationDetail(
 
         var input by rememberSaveable(conversation.id) { mutableStateOf("") }
         val focusManager = LocalFocusManager.current
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            OutlinedTextField(
-                value = input,
-                onValueChange = { input = it },
-                modifier = Modifier.weight(1f),
-                placeholder = {
-                    Text(
-                        "Nachricht oder Frage eingeben…",
-                        fontSize = 13.sp
-                    )
-                },
-                textStyle = TextStyle(fontSize = 14.sp),
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Sentences,
-                    imeAction = ImeAction.Send
-                ),
-                keyboardActions = KeyboardActions(onSend = {
-                    if (input.isNotBlank()) {
-                        onSendMessage(input)
-                        input = ""
-                        focusManager.clearFocus()
-                    }
-                }),
-                minLines = 1,
-                maxLines = 4
-            )
-            OverlayCircleButton(
-                icon = Icons.AutoMirrored.Filled.Send,
-                contentDescription = "Senden",
-                onClick = {
-                    if (input.isNotBlank()) {
-                        onSendMessage(input)
-                        input = ""
-                        focusManager.clearFocus()
-                    }
-                },
-                containerColor = Color(0xFF7048E8),
-                contentColor = Color.White,
-                size = 44.dp,
-                enabled = input.isNotBlank(),
-                shadowElevation = 6.dp
-            )
+        if (showInput) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = {
+                        Text(
+                            "Nachricht oder Frage eingeben…",
+                            fontSize = 13.sp
+                        )
+                    },
+                    textStyle = TextStyle(fontSize = 14.sp),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Send
+                    ),
+                    keyboardActions = KeyboardActions(onSend = {
+                        if (input.isNotBlank()) {
+                            onSendMessage(input)
+                            input = ""
+                            focusManager.clearFocus()
+                        }
+                    }),
+                    minLines = 1,
+                    maxLines = 4
+                )
+                OverlayCircleButton(
+                    icon = Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "Senden",
+                    onClick = {
+                        if (input.isNotBlank()) {
+                            onSendMessage(input)
+                            input = ""
+                            focusManager.clearFocus()
+                        }
+                    },
+                    containerColor = Color(0xFF7048E8),
+                    contentColor = Color.White,
+                    size = 44.dp,
+                    enabled = input.isNotBlank(),
+                    shadowElevation = 6.dp
+                )
+            }
         }
     }
 }
